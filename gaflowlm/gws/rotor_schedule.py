@@ -15,16 +15,21 @@ from gaflowlm.clifford.engine import CliffordEngine
 
 
 class CosineSchedule:
-    """Standard cosine annealing — the baseline."""
+    """Standard cosine annealing with optional warmup."""
 
-    def __init__(self, eta_max: float, T: int, eta_min: float = 0.0):
+    def __init__(self, eta_max: float, T: int, eta_min: float = 0.0, warmup_steps: int = 0):
         self.eta_max = eta_max
         self.T = T
         self.eta_min = eta_min
+        self.warmup_steps = warmup_steps
 
     def __call__(self, step: int) -> float:
-        t = min(step, self.T)
-        return self.eta_min + 0.5 * (self.eta_max - self.eta_min) * (1 + math.cos(math.pi * t / self.T))
+        if step <= self.warmup_steps:
+            # Linear warmup
+            return self.eta_min + (self.eta_max - self.eta_min) * step / max(1, self.warmup_steps)
+        t = min(step - self.warmup_steps, self.T - self.warmup_steps)
+        T_decay = max(1, self.T - self.warmup_steps)
+        return self.eta_min + 0.5 * (self.eta_max - self.eta_min) * (1 + math.cos(math.pi * t / T_decay))
 
 
 class GradeRotorSchedule:

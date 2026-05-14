@@ -1,0 +1,67 @@
+{
+  "n_seeds": 5,
+  "n_ok": 5,
+  "gws_bests": [
+    3.027534,
+    1.270459,
+    2.631104,
+    0.939731,
+    1.709465
+  ],
+  "cos_bests": [
+    386.700195,
+    43.61982,
+    195.759979,
+    61.7323,
+    29.75444
+  ],
+  "gws_wins": 5,
+  "cos_wins": 0,
+  "results": [
+    {
+      "seed": 42,
+      "status": "ok",
+      "gws_final": 3.027534,
+      "gws_best": 3.027534,
+      "cos_final": 386.700195,
+      "cos_best": 386.700195,
+      "winner": "GWS"
+    },
+    {
+      "seed": 43,
+      "status": "ok",
+      "gws_final": 1.270459,
+      "gws_best": 1.270459,
+      "cos_final": 135.839691,
+      "cos_best": 43.61982,
+      "winner": "GWS"
+    },
+    {
+      "seed": 44,
+      "status": "ok",
+      "gws_final": 2.631104,
+      "gws_best": 2.631104,
+      "cos_final": 283.477539,
+      "cos_best": 195.759979,
+      "winner": "GWS"
+    },
+    {
+      "seed": 45,
+      "status": "ok",
+      "gws_final": 4.137359,
+      "gws_best": 0.939731,
+      "cos_final": 2750.429932,
+      "cos_best": 61.7323,
+      "winner": "GWS"
+    },
+    {
+      "seed": 46,
+      "status": "ok",
+      "gws_final": 1.709465,
+      "gws_best": 1.709465,
+      "cos_final": 29.75444,
+      "cos_best": 29.75444,
+      "winner": "GWS"
+    }
+  ]
+}

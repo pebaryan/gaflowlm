@@ -1,0 +1,70 @@
+Device: cuda
+Loading GPT-2 tokenizer...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Vocab size: 50257
+Using synthetic data (TinyGSM download requires Hydra pipeline)
+Creating SFM model (mode=analytic)...
+Model parameters: 29,253,457
+
+Starting training for 5000 steps (eval every 1000)...
+Step     1 | loss=10.8270 | 2.9 steps/s | elapsed=0s
+Step   100 | loss=10.6621 | 5.8 steps/s | elapsed=17s
+Step   200 | loss=10.4700 | 5.7 steps/s | elapsed=35s
+Step   300 | loss=10.2709 | 5.6 steps/s | elapsed=53s
+Step   400 | loss=9.8696 | 5.6 steps/s | elapsed=71s
+Step   500 | loss=9.6918 | 5.6 steps/s | elapsed=89s
+Step   600 | loss=9.7305 | 5.6 steps/s | elapsed=108s
+Step   700 | loss=9.2016 | 5.6 steps/s | elapsed=126s
+Step   800 | loss=8.9729 | 5.6 steps/s | elapsed=144s
+Step   900 | loss=8.9296 | 5.5 steps/s | elapsed=162s
+Step  1000 | loss=9.1479 | 5.5 steps/s | elapsed=180s
+  EVAL step 1000: loss=8.8853
+Step  1100 | loss=9.1048 | 5.5 steps/s | elapsed=198s
+Step  1200 | loss=8.9175 | 5.6 steps/s | elapsed=215s
+Step  1300 | loss=8.7872 | 5.6 steps/s | elapsed=233s
+Step  1400 | loss=8.6973 | 5.6 steps/s | elapsed=250s
+Step  1500 | loss=8.0916 | 5.6 steps/s | elapsed=267s
+Step  1600 | loss=8.1999 | 5.6 steps/s | elapsed=285s
+Step  1700 | loss=8.1291 | 5.6 steps/s | elapsed=302s
+Step  1800 | loss=7.8825 | 5.6 steps/s | elapsed=319s
+Step  1900 | loss=7.8272 | 5.6 steps/s | elapsed=336s
+Step  2000 | loss=7.3355 | 5.7 steps/s | elapsed=354s
+  EVAL step 2000: loss=7.6519
+Step  2100 | loss=7.8922 | 5.7 steps/s | elapsed=371s
+Step  2200 | loss=7.8493 | 5.7 steps/s | elapsed=389s
+Step  2300 | loss=7.7888 | 5.7 steps/s | elapsed=406s
+Step  2400 | loss=7.2004 | 5.7 steps/s | elapsed=423s
+Step  2500 | loss=6.7183 | 5.7 steps/s | elapsed=441s
+Step  2600 | loss=7.1313 | 5.7 steps/s | elapsed=458s
+Step  2700 | loss=6.9433 | 5.7 steps/s | elapsed=475s
+Step  2800 | loss=6.5957 | 5.7 steps/s | elapsed=492s
+Step  2900 | loss=6.5179 | 5.7 steps/s | elapsed=510s
+Step  3000 | loss=6.6618 | 5.7 steps/s | elapsed=527s
+  EVAL step 3000: loss=6.5939
+Step  3100 | loss=6.4300 | 5.7 steps/s | elapsed=545s
+Step  3200 | loss=6.6630 | 5.7 steps/s | elapsed=562s
+Step  3300 | loss=6.1043 | 5.7 steps/s | elapsed=579s
+Step  3400 | loss=6.2045 | 5.7 steps/s | elapsed=597s
+Step  3500 | loss=6.2916 | 5.7 steps/s | elapsed=614s
+Step  3600 | loss=5.6905 | 5.7 steps/s | elapsed=631s
+Step  3700 | loss=6.1718 | 5.7 steps/s | elapsed=648s
+Step  3800 | loss=6.2603 | 5.7 steps/s | elapsed=666s
+Step  3900 | loss=5.3012 | 5.7 steps/s | elapsed=683s
+Step  4000 | loss=4.9685 | 5.7 steps/s | elapsed=700s
+  EVAL step 4000: loss=5.4789
+Step  4100 | loss=5.5807 | 5.7 steps/s | elapsed=718s
+Step  4200 | loss=6.2045 | 5.7 steps/s | elapsed=735s
+Step  4300 | loss=4.8190 | 5.7 steps/s | elapsed=752s
+Step  4400 | loss=6.7213 | 5.7 steps/s | elapsed=770s
+Step  4500 | loss=4.7164 | 5.7 steps/s | elapsed=787s
+Step  4600 | loss=5.1447 | 5.7 steps/s | elapsed=804s
+Step  4700 | loss=5.1787 | 5.7 steps/s | elapsed=822s
+Step  4800 | loss=5.5380 | 5.7 steps/s | elapsed=839s
+Step  4900 | loss=4.4212 | 5.7 steps/s | elapsed=856s
+Step  5000 | loss=3.9331 | 5.7 steps/s | elapsed=873s
+  EVAL step 5000: loss=4.5555
+
+============================================================
+Training complete: 5000 steps in 874s (5.7 steps/s)
+Best eval loss: 4.5555
+Algo: sfm, Mode: analytic, Hidden: 256, Blocks: 4

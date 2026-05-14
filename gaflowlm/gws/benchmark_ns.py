@@ -219,8 +219,13 @@ class CliffordFNO2d(nn.Module):
 # ---------------------------------------------------------------------------
 
 def run_benchmark(args):
+    # Seed
+    torch.manual_seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+
     device = torch.device(args.device)
-    print(f"Device: {device}")
+    print(f"Seed: {args.seed} | Device: {device}")
 
     # Build model
     model = CliffordFNO2d(
@@ -263,11 +268,12 @@ def run_benchmark(args):
         warmup_steps=args.warmup,
     )
 
-    # --- Baseline cosine schedule ---
+    # --- Baseline cosine schedule (with warmup for fair comparison) ---
     cosine_schedule = CosineSchedule(
         eta_max=args.lr,
         T=args.steps,
         eta_min=args.lr * 0.01,
+        warmup_steps=args.warmup,
     )
 
     # --- Create two copies of the model for fair comparison ---
@@ -283,7 +289,7 @@ def run_benchmark(args):
     # Output
     out_dir = Path("gaflowlm/gws/logs")
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"benchmark_ns_c{args.channels}_b{args.blocks}_m{args.modes}.jsonl"
+    out_file = out_dir / f"benchmark_ns_c{args.channels}_b{args.blocks}_m{args.modes}_s{args.seed}.jsonl"
     print(f"Logging to: {out_file}")
 
     records = []
@@ -411,6 +417,7 @@ def main():
     p.add_argument("--lr", type=float, default=1e-3, help="Peak learning rate")
     p.add_argument("--k-s", type=int, default=2, help="Scheduling algebra dimension")
     p.add_argument("--warmup", type=int, default=100, help="Warmup steps")
+    p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--log-interval", type=int, default=50, help="Log every N steps")
     p.add_argument("--device", type=str, default="auto")
     args = p.parse_args()
