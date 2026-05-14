@@ -30,4 +30,5 @@ Thumbs.db
 # Environment
 .env
 venv/
-.venv/
+.venv/_sflm_source/
+_sflm_source/
