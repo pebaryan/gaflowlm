@@ -5,7 +5,7 @@ Provides:
 - engine: Core Cl(k,0,0) operations, CliffordEngine, embedding projections
 """
 
-from gaflowlm.clifford.engine import (
+from .engine import (
     CliffordEngine,
     EmbedToClifford,
     CliffordToEmbed,

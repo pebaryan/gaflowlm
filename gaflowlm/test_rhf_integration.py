@@ -17,14 +17,12 @@ import os
 # Ensure gaflowlm/ directory is on sys.path for bare imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Mock flash_attn if not available (allows tests to run without CUDA flash-attn)
-try:
-    import flash_attn
-except ImportError:
-    import flash_attn_mock
-    sys.modules['flash_attn'] = flash_attn_mock
-    sys.modules['flash_attn.layers'] = flash_attn_mock
-    sys.modules['flash_attn.layers.rotary'] = flash_attn_mock.layers.rotary
+# Mock flash_attn — installed flash_attn Triton kernels fail on V100/RTX 3060
+# with this CUDA/PyTorch version. Use pure-PyTorch fallback instead.
+import flash_attn_mock
+sys.modules['flash_attn'] = flash_attn_mock
+sys.modules['flash_attn.layers'] = flash_attn_mock
+sys.modules['flash_attn.layers.rotary'] = flash_attn_mock.layers.rotary
 
 import torch
 import torch.nn.functional as F
