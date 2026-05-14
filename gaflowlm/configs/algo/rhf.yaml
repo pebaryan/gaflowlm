@@ -1,0 +1,19 @@
+name: rhf
+diffusion_type: sphere
+backbone: sphere-dit
+parameterization: mean
+time_conditioning: True
+loss_type: ce
+T: 0
+causal_attention: False
+adaLN: True
+slerp_precision: float64
+eps: 1e-6
+
+invert_time_convention: true
+renormalize_weights: False
+
+# RHF-specific config
+rhf_mode: analytic  # analytic (default, same numerics as S-FLM) or clifford
+rhf_clifford_k: 8   # k for Cl(k,0,0) when rhf_mode='clifford'
+rhf_compute_bivector: false  # compute bivector velocity (for CFS extensions)

@@ -21,6 +21,7 @@ import algo
 from callbacks.throughput import ThroughputCallback
 import dataloader
 import sandbox_gsm8k
+import rhf_algo
 import utils
 
 
@@ -628,6 +629,8 @@ def main(config):
     diffusion_model = algo.DUO_BASE
   elif config.algo.name == 'sfm':
     diffusion_model = algo.SFM
+  elif config.algo.name == 'rhf':
+    diffusion_model = rhf_algo.RHFSFM
   elif config.algo.name == 'flm':
     diffusion_model = algo.FLM
   elif config.algo.name == 'candi':

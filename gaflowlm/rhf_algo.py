@@ -23,18 +23,11 @@ Two RHF modes:
 import torch
 import torch.nn.functional as F
 
-# Import S-FLM base class
-try:
-    from gaflowlm.algo import SFM
-    from gaflowlm import utils
-    from gaflowlm import flm_utils
-except ImportError:
-    # Fallback for direct script execution
-    import algo as sfm_algo
-    SFM = sfm_algo.SFM
-    import utils
+import algo
+import samplers
+import utils
 
-from gaflowlm.rotor_utils import (
+from rotor_utils import (
     rotor_slerp,
     rotor_log_map,
     rotor_exp_map,
@@ -43,8 +36,10 @@ from gaflowlm.rotor_utils import (
     sphere_normalize,
 )
 
+from samplers import SFMContext, sfm_compute_velocity, sfm_step_size
 
-class RHFSFM(SFM):
+
+class RHFSFM(algo.SFM):
     """Rotor Hyperspherical Flow: SFM with rotor-based sphere operations.
 
     Drop-in replacement for SFM. Same training and sampling interface.
@@ -123,10 +118,6 @@ class RHFSFM(SFM):
         return bivector_velocity(x_t, x_0, eps=self.eps)
 
 
-# ---------------------------------------------------------------------------
-# RHF sampler: wraps SFMSampler with rotor exp_map
-# ---------------------------------------------------------------------------
-
 class RHFSampler:
     """Rotor Hyperspherical Flow sampler.
 
@@ -155,8 +146,7 @@ class RHFSampler:
     @classmethod
     def from_config(cls, config, model):
         """Create RHFSampler from config and model."""
-        from gaflowlm.samplers import build_sampler
-        sfm_sampler = build_sampler(config, model)
+        sfm_sampler = samplers.get_sampler(config)
         rhf_mode = getattr(config.algo, 'rhf_mode', 'analytic')
         clifford_k = getattr(config.algo, 'rhf_clifford_k', 8)
         return cls(sfm_sampler, rhf_mode=rhf_mode, clifford_k=clifford_k)
@@ -172,16 +162,12 @@ class RHFSampler:
         Everything else (forward pass, velocity computation, step size)
         remains identical.
         """
-        from gaflowlm import utils as sflm_utils
-        from gaflowlm.samplers import sfm_compute_velocity, sfm_step_size
-
         num_steps = len(state.t_schedule) - 1
         is_last_step = (state.step_idx == num_steps - 1)
 
         _, alpha_t = model.noise(state.t_schedule[state.step_idx])
         sigma_t = model._sigma_from_alphat(alpha_t).reshape(-1, 1)
 
-        from gaflowlm.samplers import SFMContext
         context = SFMContext(temperature=self._sampler.temperature)
         log_p = model.forward(xt=state.xt, sigma=sigma_t, context=context)
 
@@ -190,7 +176,7 @@ class RHFSampler:
         state.nfe += 1
 
         if self._sampler.p_nucleus != 1.0 or self._sampler.top_k != -1:
-            log_p = sflm_utils.top_k_top_p_filtering(log_p,
+            log_p = utils.top_k_top_p_filtering(log_p,
                 top_k=self._sampler.top_k, top_p=self._sampler.p_nucleus
             ).log_softmax(-1)
 
@@ -199,7 +185,7 @@ class RHFSampler:
 
         # Velocity computation (same as SFM)
         log_p_window = log_p[:, state.start_idx:]
-        E = sflm_utils.sphere_normalize(
+        E = utils.sphere_normalize(
             model.backbone.sphere_embed.weight.detach())
         x = state.xt[:, state.start_idx:].to(E)
 
