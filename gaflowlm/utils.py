@@ -10,10 +10,29 @@ import hashlib
 import base64
 
 import fsspec
-import lightning
 import numpy as np
 import torch
-from timm.scheduler import CosineLRScheduler
+
+try:
+    from timm.scheduler import CosineLRScheduler
+except ModuleNotFoundError:  # pragma: no cover - optional in lightweight envs
+    class CosineLRScheduler:  # type: ignore
+        def __init__(self, *args, **kwargs):
+            raise ModuleNotFoundError(
+                "timm is required for CosineDecayWarmupLRScheduler"
+            )
+
+try:
+    import lightning
+except ModuleNotFoundError:  # pragma: no cover - optional in lightweight envs
+    class _LightningStub:
+        class pytorch:
+            class utilities:
+                @staticmethod
+                def rank_zero_only(fn):
+                    return fn
+
+    lightning = _LightningStub()
 
 
 @contextmanager
