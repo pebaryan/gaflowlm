@@ -22,6 +22,7 @@
 | Analogy tasks (BATS) | Whether bivector channels capture relational structure |
 | Rotor composition error | ‖R₃ - R₂R₁‖ for multi-step sampling |
 | Low-NFE curve | Accuracy at {1,2,4,8,16,32,64,128,256,512,1024} steps |
+| Real-data smoke test | Token reconstruction on the local GSM8K-test fixture |
 
 ## Ablation Studies
 
@@ -112,6 +113,7 @@ adaptive_ema: 0.9
 - Every 5000 steps: GSM8K (T=1), norm drift, grade energy
 - Every 25000 steps: full benchmark suite
 - Final: all benchmarks at 250k steps
+- For quick branch validation, run the standalone CFS benchmark against `gaflowlm/data/gsm8k_test.json` and report reconstruction accuracy vs. reverse-time steps.
 
 ## Success Criteria
 

@@ -1,12 +1,14 @@
 """
-CFS Model — Clifford Flow on the Sphere.
+CFS: time-conditioned multivector flow model.
 
-Full multivector transformer with:
-- EmbedToClifford projection
-- CARE position encoding
-- CFS transformer blocks (CFA + FFN)
-- CliffordToEmbed projection
-- Output head for vocabulary prediction
+This is the flow-style CFS variant:
+- tokens are embedded into Clifford space
+- CARE provides rotor-based positional encoding
+- CFA blocks operate on multivectors
+- the network predicts a multivector velocity field
+
+Training uses a rectified-flow-style objective on multivector trajectories
+constructed from clean token embeddings and random multivector noise.
 """
 
 import math
@@ -19,19 +21,7 @@ from .care import CAREPositionEncoding
 
 
 class CFSModel(nn.Module):
-    """CFS model: full multivector transformer for language modeling.
-
-    Args:
-        vocab_size: Vocabulary size.
-        hidden_size: Embedding/hidden dimension.
-        k: Clifford algebra dimension Cl(k,0,0).
-        n_blocks: Number of CFS transformer blocks.
-        n_heads: Number of attention heads.
-        ff_dim: Feed-forward hidden dimension.
-        engine: CliffordEngine instance.
-        max_len: Maximum sequence length.
-        dropout: Dropout probability.
-    """
+    """Time-conditioned multivector flow backbone for language sequences."""
 
     def __init__(
         self,
@@ -44,118 +34,139 @@ class CFSModel(nn.Module):
         engine=None,
         max_len: int = 512,
         dropout: float = 0.0,
+        use_higher_order: bool = False,
     ):
         super().__init__()
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.k = k
-        self.mv_dim = 1 << k  # 2^k
+        self.mv_dim = 1 << k
         self.n_blocks = n_blocks
         self.engine = engine
+        self.use_higher_order = bool(use_higher_order or getattr(engine, "use_higher_order", False))
 
         dt = engine.cayley.dtype if engine else None
 
-        # Token embedding (learned) — match dtype to engine
         self.token_embedding = nn.Embedding(vocab_size, hidden_size, dtype=dt)
-
-        # Project to Clifford space: d-dim → multivector
-        # Learnable projection rather than simple truncation
         self.embed_to_clifford = nn.Linear(hidden_size, self.mv_dim, dtype=dt)
 
-        # CARE position encoding
+        self.time_feature_dim = max(8, hidden_size // 4)
+        self.time_mlp = nn.Sequential(
+            nn.Linear(self.time_feature_dim, hidden_size, dtype=dt),
+            nn.SiLU(),
+            nn.Linear(hidden_size, self.mv_dim, dtype=dt),
+        )
+
         if engine is not None:
-            self.care = CAREPositionEncoding(
-                k=k, max_len=max_len, engine=engine,
-            )
+            self.care = CAREPositionEncoding(k=k, max_len=max_len, engine=engine)
 
-        # CFS transformer blocks
-        self.blocks = nn.ModuleList([
-            CFSTransformerBlock(
-                mv_dim=self.mv_dim, n_heads=n_heads,
-                ff_dim=ff_dim, engine=engine, dropout=dropout,
-            )
-            for _ in range(n_blocks)
-        ])
+        self.blocks = nn.ModuleList(
+            [
+                CFSTransformerBlock(
+                    mv_dim=self.mv_dim,
+                    n_heads=n_heads,
+                    ff_dim=ff_dim,
+                    engine=engine,
+                    dropout=dropout,
+                    use_higher_order=self.use_higher_order,
+                )
+                for _ in range(n_blocks)
+            ]
+        )
 
-        # Project back: multivector → d-dim
+        self.mv_norm = nn.LayerNorm(self.mv_dim, dtype=dt)
+        self.embed_norm = nn.LayerNorm(hidden_size, dtype=dt)
+        self.velocity_head = nn.Linear(self.mv_dim, self.mv_dim, bias=False, dtype=dt)
+        self.dropout = nn.Dropout(dropout)
         self.clifford_to_embed = nn.Linear(self.mv_dim, hidden_size, dtype=dt)
 
-        # Layer norm before output
-        self.norm = nn.LayerNorm(hidden_size, dtype=dt)
+    def _time_features(self, t: torch.Tensor) -> torch.Tensor:
+        """Build sinusoidal time features."""
+        if t.ndim == 1:
+            t = t.unsqueeze(-1)
+        t = t.to(dtype=self.embed_to_clifford.weight.dtype)
 
-        # Output head (tied embeddings or separate)
-        self.output_head = nn.Linear(hidden_size, vocab_size, bias=False, dtype=dt)
+        half = self.time_feature_dim // 2
+        if half == 0:
+            return t
 
-        self.dropout = nn.Dropout(dropout)
+        freqs = torch.exp(
+            -math.log(10000.0)
+            * torch.arange(half, device=t.device, dtype=t.dtype)
+            / max(1, half - 1)
+        )
+        angles = t * freqs.unsqueeze(0)
+        feats = [torch.sin(angles), torch.cos(angles)]
+        if self.time_feature_dim % 2 == 1:
+            feats.append(t)
+        return torch.cat(feats, dim=-1)
+
+    def encode_tokens(self, x: torch.Tensor, positions: torch.Tensor = None) -> torch.Tensor:
+        """Encode token IDs into clean multivectors."""
+        h = self.token_embedding(x)
+        h = self.dropout(h)
+        mv = self.embed_to_clifford(h)
+        if hasattr(self, "care"):
+            mv = self.care(mv, pos=positions)
+        return mv
+
+    def decode_embedding(self, mv: torch.Tensor) -> torch.Tensor:
+        """Project multivectors back into hidden embedding space."""
+        h = self.clifford_to_embed(mv)
+        return self.embed_norm(h)
+
+    def decode_logits(self, mv: torch.Tensor) -> torch.Tensor:
+        """Optional token logits from a multivector state."""
+        h = self.decode_embedding(mv)
+        logits = torch.matmul(h, self.token_embedding.weight.t())
+        return logits / math.sqrt(self.hidden_size)
 
     def forward(
         self,
-        x: torch.Tensor,
+        xt: torch.Tensor,
+        t: torch.Tensor,
         mask: torch.Tensor = None,
         positions: torch.Tensor = None,
     ) -> torch.Tensor:
-        """CFS model forward.
+        """Predict the multivector velocity at time `t`."""
+        if xt.ndim != 3:
+            raise ValueError(f"Expected [B, L, mv_dim] multivector input, got {xt.shape}")
 
-        Args:
-            x: [B, L] token IDs.
-            mask: [B, L, L] attention mask or None.
-            positions: [B, L] position indices or None (0..L-1).
+        B, L, _ = xt.shape
+        t_feat = self._time_features(t)
+        t_bias = self.time_mlp(t_feat).unsqueeze(1).expand(-1, L, -1)
 
-        Returns:
-            [B, L, vocab_size] logits.
-        """
-        B, L = x.shape
+        x = xt + t_bias
+        x = self.dropout(x)
+        if hasattr(self, "care"):
+            x = self.care(x, pos=positions)
 
-        # Token embedding: [B, L, d]
-        h = self.token_embedding(x)
-        h = self.dropout(h)
-
-        # Project to Clifford space: [B, L, mv_dim]
-        mv = self.embed_to_clifford(h)
-
-        # CARE position encoding
-        if hasattr(self, 'care'):
-            mv = self.care(mv, pos=positions)
-
-        # CFS transformer blocks
         for block in self.blocks:
-            mv = block(mv, mask=mask)
+            x = block(x, mask=mask)
 
-        # Project back to embedding space: [B, L, d]
-        h = self.clifford_to_embed(mv)
-        h = self.norm(h)
-        h = self.dropout(h)
-
-        # Output head: [B, L, vocab_size]
-        logits = self.output_head(h)
-
-        return logits
+        x = self.mv_norm(x)
+        x = self.dropout(x)
+        velocity = self.velocity_head(x)
+        return velocity
 
 
 class CFSAlgorithm:
-    """Training wrapper for CFS model.
-
-    Provides the same interface as SFM for the standalone training loop.
-    CFS is a full model replacement — no SLERP/log-map needed in the flow.
-    """
+    """Flow-style training wrapper for the CFS model."""
 
     def __init__(self, config, tokenizer, engine=None):
         self.config = config
         self.tokenizer = tokenizer
-        self.vocab_size = tokenizer.vocab_size
+        self.vocab_size = len(tokenizer) if hasattr(tokenizer, "__len__") else tokenizer.vocab_size
 
-        # Extract CFS params from config
-        hidden_size = getattr(config.model, 'hidden_size', 256)
-        k = getattr(config.algo, 'rhf_clifford_k', 8)
-        n_blocks = getattr(config.model, 'n_blocks', 4)
-        n_heads = getattr(config.model, 'n_heads', 8)
-        max_len = getattr(config.model, 'length', 512)
+        hidden_size = getattr(config.model, "hidden_size", 256)
+        k = getattr(config.algo, "rhf_clifford_k", 8)
+        n_blocks = getattr(config.model, "n_blocks", 4)
+        n_heads = getattr(config.model, "n_heads", 8)
+        max_len = getattr(config.model, "length", 512)
 
-        # Engine is required
         assert engine is not None, "CFSAlgorithm requires a CliffordEngine"
         self.engine = engine
 
-        # Create model
         self.model = CFSModel(
             vocab_size=self.vocab_size,
             hidden_size=hidden_size,
@@ -165,79 +176,267 @@ class CFSAlgorithm:
             ff_dim=hidden_size * 4,
             engine=self.engine,
             max_len=max_len,
+            use_higher_order=bool(getattr(config.algo, "cfs_use_higher_order", False)),
         )
         self.model.train()
 
-        # Setup optimizer
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
-            lr=getattr(config.optim, 'lr', 3e-4),
-            weight_decay=getattr(config.optim, 'weight_decay', 0.0),
+            lr=getattr(config.optim, "lr", 3e-4),
+            weight_decay=getattr(config.optim, "weight_decay", 0.0),
         )
 
-        self.device = torch.device('cpu')
+        self.device = torch.device("cpu")
+        self.loss_type = getattr(config.algo, "cfs_loss", "mse")
+        self.time_sampling = getattr(config.algo, "cfs_time_sampling", "uniform")
+        self.time_beta = float(getattr(config.algo, "cfs_time_beta", 2.0))
+        self.flow_noise_scale = getattr(config.algo, "cfs_noise_scale", 1.0)
+        self.normalize_noise = getattr(config.algo, "cfs_normalize_noise", False)
+        self.sample_steps = int(getattr(config.algo, "cfs_sample_steps", 32))
+        self.use_higher_order = bool(getattr(config.algo, "cfs_use_higher_order", False))
 
     def to(self, device):
-        """Move model to device."""
         self.device = device
         self.model = self.model.to(device)
         return self
 
-    def train_step(self, x0: torch.Tensor) -> dict:
-        """Single training step.
+    def _sample_positions(self, batch: torch.Tensor) -> torch.Tensor:
+        B, L = batch.shape
+        return torch.arange(L, device=self.device).unsqueeze(0).expand(B, -1)
 
-        Args:
-            x0: [B, L] token IDs.
+    def _pairwise_mask(self, attention_mask: torch.Tensor) -> torch.Tensor:
+        token_mask = attention_mask.to(dtype=torch.bool)
+        return token_mask.unsqueeze(1) & token_mask.unsqueeze(2)
 
-        Returns:
-            dict with 'loss' key.
-        """
+    def _sample_time(self, batch_size: int, dtype: torch.dtype) -> torch.Tensor:
+        u = torch.rand(batch_size, 1, device=self.device, dtype=dtype)
+        if self.time_sampling == "uniform":
+            return u
+        if self.time_sampling == "cosine":
+            return 0.5 - 0.5 * torch.cos(math.pi * u)
+        if self.time_sampling == "quadratic":
+            return u.pow(2)
+        if self.time_sampling == "beta":
+            dist = torch.distributions.Beta(self.time_beta, self.time_beta)
+            return dist.sample((batch_size, 1)).to(device=self.device, dtype=dtype)
+        raise ValueError(f"Unknown CFS time sampling schedule: {self.time_sampling}")
+
+    def _sample_flow_batch(self, x0: torch.Tensor, attention_mask: torch.Tensor = None):
+        positions = self._sample_positions(x0)
+        m0 = self.model.encode_tokens(x0, positions=positions)
+
+        noise = torch.randn_like(m0) * self.flow_noise_scale
+        if self.normalize_noise:
+            noise = self.engine.normalize_multivector(noise)
+
+        if attention_mask is not None:
+            seq_mask = attention_mask.to(device=m0.device, dtype=m0.dtype).unsqueeze(-1)
+            m0 = m0 * seq_mask
+            noise = noise * seq_mask
+
+        B = x0.shape[0]
+        t = self._sample_time(B, m0.dtype)
+        xt = (1 - t.unsqueeze(-1)) * m0 + t.unsqueeze(-1) * noise
+        target_velocity = noise - m0
+
+        return positions, t, xt, target_velocity
+
+    def _flow_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if self.loss_type == "mse":
+            return F.mse_loss(pred, target)
+        if self.loss_type == "l1":
+            return F.l1_loss(pred, target)
+        raise ValueError(f"Unknown CFS flow loss: {self.loss_type}")
+
+    def _masked_flow_loss(
+        self,
+        pred: torch.Tensor,
+        target: torch.Tensor,
+        attention_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        if attention_mask is None:
+            return self._flow_loss(pred, target)
+
+        seq_mask = attention_mask.to(device=pred.device, dtype=pred.dtype).unsqueeze(-1)
+        if self.loss_type == "mse":
+            per_elem = (pred - target) ** 2
+        elif self.loss_type == "l1":
+            per_elem = (pred - target).abs()
+        else:
+            raise ValueError(f"Unknown CFS flow loss: {self.loss_type}")
+
+        weighted = per_elem * seq_mask
+        denom = seq_mask.sum().clamp(min=1.0) * pred.shape[-1]
+        return weighted.sum() / denom
+
+    def train_step(self, x0: torch.Tensor, attention_mask: torch.Tensor = None) -> dict:
         x0 = x0.to(self.device)
-        B, L = x0.shape
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
 
-        # Forward pass
-        logits = self.model(x0)
-
-        # Cross-entropy loss (predict next token)
-        # Shift: predict target at position i from context at position i-1
-        logits = logits[:, :-1, :]  # [B, L-1, vocab]
-        targets = x0[:, 1:]         # [B, L-1]
-
-        loss = F.cross_entropy(
-            logits.reshape(-1, self.vocab_size),
-            targets.reshape(-1),
+        positions, t, xt, target_velocity = self._sample_flow_batch(
+            x0, attention_mask=attention_mask
         )
+        pair_mask = None if attention_mask is None else self._pairwise_mask(attention_mask)
+        pred_velocity = self.model(xt, t, mask=pair_mask, positions=positions)
+        loss = self._masked_flow_loss(pred_velocity, target_velocity, attention_mask)
 
-        # Backward
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        return {'loss': loss.item()}
+        return {"loss": loss.item()}
 
     @torch.no_grad()
-    def evaluate(self, x0: torch.Tensor) -> dict:
-        """Evaluation step.
-
-        Args:
-            x0: [B, L] token IDs.
-
-        Returns:
-            dict with 'loss' key.
-        """
+    def evaluate(self, x0: torch.Tensor, attention_mask: torch.Tensor = None) -> dict:
         self.model.eval()
         x0 = x0.to(self.device)
-        logits = self.model(x0)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
 
-        logits = logits[:, :-1, :]
-        targets = x0[:, 1:]
-
-        loss = F.cross_entropy(
-            logits.reshape(-1, self.vocab_size),
-            targets.reshape(-1),
+        positions, t, xt, target_velocity = self._sample_flow_batch(
+            x0, attention_mask=attention_mask
         )
+        pair_mask = None if attention_mask is None else self._pairwise_mask(attention_mask)
+        pred_velocity = self.model(xt, t, mask=pair_mask, positions=positions)
+        loss = self._masked_flow_loss(pred_velocity, target_velocity, attention_mask)
+
         self.model.train()
-        return {'loss': loss.item()}
+        return {"loss": loss.item()}
+
+    @torch.no_grad()
+    def sample(
+        self,
+        x0: torch.Tensor = None,
+        seq_len: int = None,
+        num_steps: int = None,
+        positions: torch.Tensor = None,
+        attention_mask: torch.Tensor = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Run reverse-time Euler integration from noise to a denoised state."""
+        self.model.eval()
+
+        if num_steps is None:
+            num_steps = self.sample_steps
+        if x0 is not None:
+            x0 = x0.to(self.device)
+            B, seq_len = x0.shape
+            positions = self._sample_positions(x0) if positions is None else positions.to(self.device)
+            state = self.model.encode_tokens(x0, positions=positions)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
+        else:
+            if seq_len is None:
+                raise ValueError("sample() requires seq_len when x0 is not provided")
+            B = 1 if positions is None else positions.shape[0]
+            if positions is None:
+                positions = torch.arange(seq_len, device=self.device).unsqueeze(0).expand(B, -1)
+            state = torch.randn(
+                B,
+                seq_len,
+                self.model.mv_dim,
+                device=self.device,
+                dtype=self.model.embed_to_clifford.weight.dtype,
+            )
+            state = self.engine.normalize_multivector(state)
+
+        dt = 1.0 / max(1, num_steps)
+        for step in range(num_steps):
+            t = torch.full((state.shape[0], 1), 1.0 - step * dt, device=self.device, dtype=state.dtype)
+            pair_mask = None if attention_mask is None else self._pairwise_mask(attention_mask)
+            velocity = self.model(state, t, mask=pair_mask, positions=positions)
+            state = state - dt * velocity
+
+        logits = self.model.decode_logits(state)
+        self.model.train()
+        return state, logits
+
+    @torch.no_grad()
+    def sample_tokens(
+        self,
+        x0: torch.Tensor = None,
+        seq_len: int = None,
+        num_steps: int = None,
+        positions: torch.Tensor = None,
+        attention_mask: torch.Tensor = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Run flow sampling and decode token ids."""
+        state, logits = self.sample(
+            x0=x0,
+            seq_len=seq_len,
+            num_steps=num_steps,
+            positions=positions,
+            attention_mask=attention_mask,
+        )
+        tokens = logits.argmax(dim=-1)
+        return state, logits, tokens
+
+    @torch.no_grad()
+    def benchmark_reconstruction(
+        self,
+        x0: torch.Tensor,
+        step_list: list[int] = None,
+        attention_mask: torch.Tensor = None,
+    ) -> list[dict]:
+        """Benchmark token reconstruction accuracy across sampling steps."""
+        if step_list is None:
+            step_list = [1, 2, 4, 8, 16, 32]
+
+        x0 = x0.to(self.device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
+        positions = self._sample_positions(x0)
+        mv_dim = self.model.mv_dim
+        noise = torch.randn(
+            x0.shape[0],
+            x0.shape[1],
+            mv_dim,
+            device=self.device,
+            dtype=self.model.embed_to_clifford.weight.dtype,
+        )
+        noise = noise * self.flow_noise_scale
+        if self.normalize_noise:
+            noise = self.engine.normalize_multivector(noise)
+        if attention_mask is not None:
+            seq_mask = attention_mask.to(dtype=noise.dtype).unsqueeze(-1)
+            noise = noise * seq_mask
+
+        results = []
+        for num_steps in step_list:
+            state = noise.clone()
+            dt = 1.0 / max(1, num_steps)
+            for step in range(num_steps):
+                cur_t = torch.full(
+                    (x0.shape[0], 1),
+                    1.0 - step * dt,
+                    device=self.device,
+                    dtype=noise.dtype,
+                )
+                pair_mask = None if attention_mask is None else self._pairwise_mask(attention_mask)
+                velocity = self.model(state, cur_t, mask=pair_mask, positions=positions)
+                state = state - dt * velocity
+
+            logits = self.model.decode_logits(state)
+            tokens = logits.argmax(dim=-1)
+            if attention_mask is None:
+                accuracy = (tokens == x0).float().mean().item()
+            else:
+                token_mask = attention_mask.to(dtype=torch.bool)
+                accuracy = ((tokens == x0) & token_mask).float().sum().div(
+                    token_mask.float().sum().clamp(min=1.0)
+                ).item()
+            results.append(
+                {
+                    "steps": num_steps,
+                    "accuracy": accuracy,
+                    "logit_mean": logits.mean().item(),
+                    "pred_tokens": tokens[0].detach().cpu().tolist(),
+                    "target_tokens": x0[0].detach().cpu().tolist(),
+                }
+            )
+
+        self.model.train()
+        return results
 
     def train(self):
         self.model.train()

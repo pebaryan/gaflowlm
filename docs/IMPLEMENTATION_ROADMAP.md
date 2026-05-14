@@ -139,13 +139,15 @@ python -m main data=sudoku model=small-sphere-arch-rhf algo=rhf \
 - [ ] Add rotor sampling in `samplers.py`
 - [ ] Train RHF on TinyGSM (sanity check)
 
-**Phase 2: CFS Implementation (LATER)**
-- [ ] Implement `models/cfa.py` (Clifford Frame Attention)
-- [ ] Implement `models/cfs_arch.py` (CFS Transformer)
-- [ ] Implement `models/care.py` (CARE position encoding)
-- [ ] Train CFS on TinyGSM then GSM8K
+**Phase 2: CFS Implementation (COMPLETE)**
+- [x] Implement `models/cfa.py` / `models/cfs_arch.py` (Clifford Frame Attention)
+- [x] Implement `models/care.py` (CARE position encoding)
+- [x] Implement `models/cfs_model.py` and `standalone_train.py` integration
+- [x] Train CFS on TinyGSM-style synthetic data
+- [x] Add bounded real-data smoke tests on TinyGSM / GSM8K-test
+- [x] Add flow-sampling and reconstruction benchmarking
 
-**Phase 3: Evaluation & Paper (FINAL)**
+**Phase 3: Evaluation & Paper (NEXT)**
 - [ ] Full benchmark suite (GSM8K, Sudoku, OWT)
 - [ ] Ablation studies (A1-A6)
 - [ ] Analysis (grade energy, norm drift, composition quality)

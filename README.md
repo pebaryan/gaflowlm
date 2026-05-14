@@ -6,6 +6,7 @@ Research investigation into extending hyperspherical flow-based language modelin
 
 **Phase 0: Research investigation — COMPLETE**
 **Phase 1: RHF implementation — NEXT**
+**Phase 2: CFS implementation — COMPLETE**
 
 See [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md) for current task list.
 
