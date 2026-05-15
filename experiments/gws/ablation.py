@@ -24,8 +24,12 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
-from gaflowlm.gws.benchmark_ns import CliffordFNO2d, generate_ns_batch
 from gaflowlm.gws.rotor_schedule import CosineSchedule, GradeRotorSchedule
+
+# benchmark_ns lives alongside this script. When run as
+# `python experiments/gws/ablation.py`, its directory is on sys.path[0]
+# so a sibling import resolves without any package wiring.
+from benchmark_ns import CliffordFNO2d, generate_ns_batch  # noqa: E402
 
 
 def run_ablation(args):

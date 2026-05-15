@@ -8,7 +8,8 @@ project:
   baseline_repo: https://github.com/jdeschena/s-flm
   baseline_commit: 18d586f  # Initial commit (May 14, 2026)
 
-phase: 0  # 0=research, 1=rhf-implementation, 2=cfs-implementation, 3=evaluation
+phase: 3  # 0=research, 1=rhf-implementation, 2=cfs-implementation, 3=evaluation
+          # RHF + CFS + CARE + CFA + GWS landed; ablations in progress (see experiments/).
 
 dependencies:
   pytorch: ">=2.7.0"

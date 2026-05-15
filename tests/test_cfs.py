@@ -1,16 +1,9 @@
 """Tests for CFA (Clifford Frame Attention) layer and CFS block."""
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 
-try:
-    from gaflowlm.models.cfs_arch import CliffordFrameAttention, CFSTransformerBlock
-    from gaflowlm.clifford.engine import CliffordEngine
-except ModuleNotFoundError:
-    from models.cfs_arch import CliffordFrameAttention, CFSTransformerBlock
-    from clifford.engine import CliffordEngine
+from gaflowlm.clifford.engine import CliffordEngine
+from gaflowlm.models.cfs_arch import CFSTransformerBlock, CliffordFrameAttention
 
 
 def _make_cfa(k=3, n_heads=4, bilinear=True):

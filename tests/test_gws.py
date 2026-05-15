@@ -1,22 +1,13 @@
 """Tests for the Grade-Wise Scheduler (GWS)."""
 
 import math
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 import torch.nn as nn
 
-try:
-    from gaflowlm.schedulers import GWScheduler
-    from gaflowlm.models.cfs_model import CFSAlgorithm
-    from gaflowlm.clifford.engine import CliffordEngine
-except ModuleNotFoundError:
-    from schedulers import GWScheduler
-    from models.cfs_model import CFSAlgorithm
-    from clifford.engine import CliffordEngine
+from gaflowlm.clifford.engine import CliffordEngine
+from gaflowlm.models.cfs_model import CFSAlgorithm
+from gaflowlm.schedulers import GWScheduler
 
 
 def _make_scheduler(

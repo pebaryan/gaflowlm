@@ -1,17 +1,10 @@
 """Tests for the flow-style CFS model."""
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 import torch.nn.functional as F
 
-try:
-    from gaflowlm.models.cfs_model import CFSModel, CFSAlgorithm
-    from gaflowlm.clifford.engine import CliffordEngine
-except ModuleNotFoundError:
-    from models.cfs_model import CFSModel, CFSAlgorithm
-    from clifford.engine import CliffordEngine
+from gaflowlm.clifford.engine import CliffordEngine
+from gaflowlm.models.cfs_model import CFSAlgorithm, CFSModel
 
 
 def test_cfs_model_basic():

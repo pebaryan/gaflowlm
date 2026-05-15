@@ -4,9 +4,13 @@ import os
 import sys
 from argparse import Namespace
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# cfs_overfit_probe is a script-style module (root-level absolute imports
+# into gaflowlm/*.py). Adding gaflowlm/ to sys.path lets those resolve.
+_PKG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "gaflowlm"))
+if _PKG not in sys.path:
+    sys.path.insert(0, _PKG)
 
-from cfs_overfit_probe import run_overfit_probe
+from cfs_overfit_probe import run_overfit_probe  # noqa: E402
 
 
 def test_cfs_overfits_fixed_synthetic_batch():

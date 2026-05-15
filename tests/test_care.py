@@ -1,17 +1,9 @@
 """Tests for CARE position encoding."""
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import torch
 
-# Support both direct and packaged imports
-try:
-    from gaflowlm.models.care import CAREPositionEncoding
-    from gaflowlm.clifford.engine import CliffordEngine
-except ModuleNotFoundError:
-    from models.care import CAREPositionEncoding
-    from clifford.engine import CliffordEngine
+from gaflowlm.clifford.engine import CliffordEngine
+from gaflowlm.models.care import CAREPositionEncoding
 
 
 def test_care_basic():
