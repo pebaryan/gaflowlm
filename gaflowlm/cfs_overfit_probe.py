@@ -12,6 +12,8 @@ import os
 import sys
 from dataclasses import dataclass, field
 
+os.environ.setdefault("TORCHDYNAMO_DISABLE", "1")
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import flash_attn_mock

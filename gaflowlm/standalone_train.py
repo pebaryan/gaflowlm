@@ -6,6 +6,7 @@ Supports: CPU, single-GPU, data-parallel multi-GPU.
 """
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -57,6 +58,47 @@ def parse_args():
     p.add_argument("--save-dir", default=None, help="Directory to save checkpoints")
     p.add_argument("--data", default="tinygsm", choices=["tinygsm", "gsm8k_test", "synthetic"])
     p.add_argument("--vocab-size", type=int, default=None, help="Override vocab size (for synthetic data)")
+    p.add_argument("--use-gws", action="store_true", help="Enable grade-wise scheduling for CFS")
+    p.add_argument(
+        "--gws-num-grades",
+        type=int,
+        default=4,
+        help="Number of grade phases used by the GWS scheduler",
+    )
+    p.add_argument(
+        "--gws-phase-stagger",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stagger grade phase offsets instead of sharing one phase",
+    )
+    p.add_argument(
+        "--gws-learnable-phase-offsets",
+        action="store_true",
+        help="Expose phase offsets as learnable parameters",
+    )
+    p.add_argument(
+        "--gws-phase-step",
+        type=float,
+        default=0.4 * math.pi,
+        help="Fixed phase increment between grades when staggering is enabled",
+    )
+    p.add_argument(
+        "--gws-phase-offsets",
+        default=None,
+        help="Comma-separated explicit phase offsets in radians",
+    )
+    p.add_argument(
+        "--gws-phase-update-lr",
+        type=float,
+        default=0.02,
+        help="Adaptive update rate for learnable phase offsets",
+    )
+    p.add_argument(
+        "--gws-eta-min",
+        type=float,
+        default=0.0,
+        help="Minimum LR for the cosine base schedule",
+    )
     p.add_argument(
         "--cfs-benchmark-steps",
         default="1,2,4,8,16,32",
@@ -156,6 +198,14 @@ class SimpleConfig:
                 "rhf_mode": "analytic",
                 "rhf_clifford_k": 8,
                 "rhf_compute_bivector": False,
+                "use_gws": False,
+                "gws_num_grades": 4,
+                "gws_phase_stagger": True,
+                "gws_learnable_phase_offsets": False,
+                "gws_phase_step": 0.4 * math.pi,
+                "gws_phase_offsets": None,
+                "gws_phase_update_lr": 0.02,
+                "gws_total_steps": 1000,
             },
         )
     )
@@ -264,7 +314,7 @@ class SimpleConfig:
             },
         )
     )
-    optim: object = field(default_factory=lambda: type("O", (), {"lr": 3e-4, "weight_decay": 0.0, "beta1": 0.9, "beta2": 0.999, "eps": 1e-8}))
+    optim: object = field(default_factory=lambda: type("O", (), {"lr": 3e-4, "weight_decay": 0.0, "beta1": 0.9, "beta2": 0.999, "eps": 1e-8, "use_gws": False, "gws_eta_min": 0.0, "gws_phase_update_lr": 0.02}))
     eval: object = field(
         default_factory=lambda: type(
             "E",
@@ -300,6 +350,27 @@ def make_config(args):
         cfg.algo.cfs_noise_scale = 1.0
         cfg.algo.cfs_normalize_noise = False
         cfg.algo.cfs_use_higher_order = True
+        cfg.algo.use_gws = bool(args.use_gws)
+        cfg.algo.gws_num_grades = int(args.gws_num_grades)
+        cfg.algo.gws_phase_stagger = bool(args.gws_phase_stagger)
+        cfg.algo.gws_learnable_phase_offsets = bool(args.gws_learnable_phase_offsets)
+        cfg.algo.gws_phase_step = float(args.gws_phase_step)
+        cfg.algo.gws_phase_update_lr = float(args.gws_phase_update_lr)
+        cfg.algo.gws_total_steps = int(args.steps)
+        cfg.algo.gws_eta_min = float(args.gws_eta_min)
+        if args.gws_phase_offsets is not None:
+            cfg.algo.gws_phase_offsets = _parse_float_list(args.gws_phase_offsets)
+
+    cfg.optim.use_gws = bool(args.use_gws)
+    cfg.optim.gws_num_grades = int(args.gws_num_grades)
+    cfg.optim.gws_phase_stagger = bool(args.gws_phase_stagger)
+    cfg.optim.gws_learnable_phase_offsets = bool(args.gws_learnable_phase_offsets)
+    cfg.optim.gws_phase_step = float(args.gws_phase_step)
+    cfg.optim.gws_total_steps = int(args.steps)
+    cfg.optim.gws_eta_min = float(args.gws_eta_min)
+    cfg.optim.gws_phase_update_lr = float(args.gws_phase_update_lr)
+    if args.gws_phase_offsets is not None:
+        cfg.optim.gws_phase_offsets = _parse_float_list(args.gws_phase_offsets)
 
     cfg.model.hidden_size = args.hidden_size
     cfg.model.n_blocks = args.n_blocks
@@ -329,6 +400,13 @@ def make_config(args):
         cfg.data.data_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "gsm8k_test.json")
 
     return cfg
+
+
+def _parse_float_list(value: str):
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if not parts:
+        return None
+    return [float(part) for part in parts]
 
 
 class SyntheticDataLoader:

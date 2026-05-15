@@ -16,6 +16,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+try:
+    from ..schedulers import GWScheduler
+except ImportError:  # pragma: no cover - fallback for direct module imports
+    from schedulers import GWScheduler
+
 from .cfs_arch import CFSTransformerBlock
 from .care import CAREPositionEncoding
 
@@ -180,12 +185,6 @@ class CFSAlgorithm:
         )
         self.model.train()
 
-        self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=getattr(config.optim, "lr", 3e-4),
-            weight_decay=getattr(config.optim, "weight_decay", 0.0),
-        )
-
         self.device = torch.device("cpu")
         self.loss_type = getattr(config.algo, "cfs_loss", "mse")
         self.time_sampling = getattr(config.algo, "cfs_time_sampling", "uniform")
@@ -194,11 +193,127 @@ class CFSAlgorithm:
         self.normalize_noise = getattr(config.algo, "cfs_normalize_noise", False)
         self.sample_steps = int(getattr(config.algo, "cfs_sample_steps", 32))
         self.use_higher_order = bool(getattr(config.algo, "cfs_use_higher_order", False))
+        optim_cfg = getattr(config, "optim", None)
+        algo_cfg = getattr(config, "algo", None)
+
+        def _cfg_value(name: str, default):
+            for section in (optim_cfg, algo_cfg, config):
+                if section is not None and hasattr(section, name):
+                    return getattr(section, name)
+            return default
+
+        self.use_gws = bool(_cfg_value("use_gws", False))
+        self.gws_num_grades = int(_cfg_value("gws_num_grades", 4))
+        self.gws_phase_stagger = bool(_cfg_value("gws_phase_stagger", True))
+        self.gws_learnable_phase_offsets = bool(
+            _cfg_value("gws_learnable_phase_offsets", False)
+        )
+        self.gws_phase_step = float(_cfg_value("gws_phase_step", 0.4 * math.pi))
+        self.gws_phase_offsets = _cfg_value("gws_phase_offsets", None)
+        self.gws_phase_update_lr = float(_cfg_value("gws_phase_update_lr", 0.02))
+        self.gws_total_steps = int(
+            _cfg_value(
+                "gws_total_steps",
+                getattr(getattr(config, "trainer", None), "max_steps", 1000),
+            )
+        )
+
+        self.optimizer, self.scheduler = self._create_grade_aware_optimizer()
 
     def to(self, device):
         self.device = device
         self.model = self.model.to(device)
+        self.engine = self.engine.to(device)
+        self.model.engine = self.engine
+        if hasattr(self.model, "care"):
+            self.model.care.engine = self.engine
+        if self.scheduler is not None:
+            self.scheduler = self.scheduler.to(device)
         return self
+
+    def _infer_multivector_axes(self, param: torch.Tensor) -> tuple[int, ...]:
+        """Find tensor axes whose extent matches the Clifford blade dimension."""
+        mv_axes = tuple(i for i, size in enumerate(param.shape) if size == self.model.mv_dim)
+        if mv_axes:
+            return mv_axes
+        if param.ndim > 0 and param.shape[-1] == self.model.mv_dim:
+            return (param.ndim - 1,)
+        return tuple()
+
+    def _create_grade_aware_optimizer(self):
+        """Create AdamW plus an optional GWScheduler.
+
+        Multivector parameters stay in one optimizer bucket, but the scheduler
+        applies per-grade scaling to their gradient components before each step.
+        That keeps the implementation stable while preserving the grade-wise
+        effect we want to test.
+        """
+        base_lr = getattr(self.config.optim, "lr", 3e-4)
+        weight_decay = getattr(self.config.optim, "weight_decay", 0.0)
+
+        scalar_params = []
+        mv_params = []
+        mv_axes_map: dict[int, tuple[int, ...]] = {}
+
+        for name, param in self.model.named_parameters():
+            if not param.requires_grad:
+                continue
+            mv_axes = self._infer_multivector_axes(param)
+            if mv_axes:
+                mv_params.append(param)
+                mv_axes_map[id(param)] = mv_axes
+            else:
+                scalar_params.append(param)
+
+        param_groups = []
+        if scalar_params:
+            param_groups.append(
+                {
+                    "params": scalar_params,
+                    "lr": base_lr,
+                    "base_lr": base_lr,
+                    "grade_id": "scalar",
+                }
+            )
+        if mv_params:
+            param_groups.append(
+                {
+                    "params": mv_params,
+                    "lr": base_lr,
+                    "base_lr": base_lr,
+                    "grade_id": "multivector",
+                }
+            )
+
+        optimizer = torch.optim.AdamW(
+            param_groups,
+            lr=base_lr,
+            weight_decay=weight_decay,
+        )
+
+        if not self.use_gws or not mv_params:
+            return optimizer, None
+
+        scheduler = GWScheduler(
+            optimizer=optimizer,
+            engine=self.engine,
+            total_steps=self.gws_total_steps,
+            num_grades=self.gws_num_grades,
+            phase_offsets=self.gws_phase_offsets,
+            phase_stagger=self.gws_phase_stagger,
+            learnable_phase_offsets=self.gws_learnable_phase_offsets,
+            phase_step=self.gws_phase_step,
+            phase_update_lr=self.gws_phase_update_lr,
+            eta_min=float(
+                getattr(
+                    getattr(self.config, "optim", None),
+                    "gws_eta_min",
+                    getattr(getattr(self.config, "algo", None), "gws_eta_min", 0.0),
+                )
+            ),
+            multivector_axes=mv_axes_map,
+        )
+        return optimizer, scheduler
 
     def _sample_positions(self, batch: torch.Tensor) -> torch.Tensor:
         B, L = batch.shape
@@ -283,7 +398,11 @@ class CFSAlgorithm:
 
         self.optimizer.zero_grad()
         loss.backward()
+        if self.scheduler is not None:
+            self.scheduler.scale_gradients()
         self.optimizer.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
 
         return {"loss": loss.item()}
 

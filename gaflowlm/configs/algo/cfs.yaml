@@ -1,0 +1,31 @@
+name: cfs
+diffusion_type: sphere
+backbone: cfs
+parameterization: flow
+time_conditioning: True
+loss_type: mse
+T: 0
+causal_attention: True
+adaLN: True
+slerp_precision: float64
+eps: 1e-6
+
+invert_time_convention: true
+renormalize_weights: False
+
+# CFS/GWS-specific config
+cfs_sample_steps: 32
+cfs_time_sampling: uniform
+cfs_noise_scale: 1.0
+cfs_normalize_noise: false
+cfs_use_higher_order: true
+
+use_gws: false
+gws_num_grades: 4
+gws_phase_stagger: true
+gws_learnable_phase_offsets: false
+gws_phase_step: 1.2566370614359172  # 0.4 * pi
+gws_phase_offsets: null
+gws_phase_update_lr: 0.02
+gws_total_steps: 1000
+gws_eta_min: 0.0
