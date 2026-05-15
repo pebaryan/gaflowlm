@@ -140,6 +140,14 @@ For this repo and the available hardware, use the following ladder:
 - [x] Experiment plan with ablations
 - [x] Paper outline
 
+**Upstream addition: GWS track**
+- [x] Grade-Wise Geometric Scheduling (GWS) landed upstream as a separate
+      optimizer/scheduling research branch for Clifford networks
+- [ ] Decide whether to fold GWS into the current CFS/RHF evaluation plan or
+      keep it as a standalone optimization line
+- [ ] If kept separate, document it as an auxiliary track rather than a core
+      benchmark requirement
+
 **Phase 1: Implementation (NEXT)**
 - [ ] Implement `clifford/algebra.py` (geometric product, reverse, grade projection)
 - [ ] Implement `clifford/cayley.py` (Cayley tensor generation for Cl(k,0,0))
@@ -163,3 +171,4 @@ For this repo and the available hardware, use the following ladder:
 - [ ] Ablation studies (A1-A6)
 - [ ] Analysis (grade energy, norm drift, composition quality)
 - [ ] Paper writing and arXiv submission
+- [ ] Optional: GWS follow-up experiments on Clifford models

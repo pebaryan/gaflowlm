@@ -47,6 +47,18 @@ Use the following order when validating changes here:
 4. mi25 checkpoint evaluation when the shared GPU slot is available.
 5. Full S-FLM-style benchmark only after you have a dedicated multi-GPU run.
 
+### Upstream GWS Track
+
+The new `gaflowlm/gws/` package is a separate optimizer/scheduling research
+line. It is relevant to Clifford models, especially CFS, but it is not part of
+the S-FLM reference benchmark protocol above.
+
+- Treat `gaflowlm/gws/logs/` as generated experimental artifacts.
+- Use the GWS scripts for optimizer-side ablations, not as the primary language
+  modeling benchmark.
+- If GWS becomes a core contribution later, add it to a dedicated evaluation
+  subsection instead of folding it into the S-FLM benchmark table.
+
 ## Ablation Studies
 
 ### A1: Rotor vs. SLERP (Isolating the flow algebra)

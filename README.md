@@ -34,6 +34,7 @@ See [Experiment Plan](docs/EXPERIMENTS.md) for the detailed benchmark ladder.
 | [Pseudocode](docs/PSEUDOCODE.md) | Rotor-based velocity field and sampling algorithms |
 | [Mathematical Insights](docs/MATHEMATICAL_INSIGHTS.md) | Key identities (SLERP = grade-1 projection of rotor sandwich, etc.) |
 | [Experiment Plan](docs/EXPERIMENTS.md) | Benchmark matrix, ablations, evaluation protocol |
+| [GWS Research Design](docs/GWS_RESEARCH_DESIGN.md) | Grade-wise geometric scheduling track for Clifford models |
 | [Paper Outline](docs/PAPER_OUTLINE.md) | Targeted arXiv submission structure |
 | [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md) | Fork strategy, GA libraries, integration plan, current status |
 
@@ -56,6 +57,12 @@ Minimal intervention — swap flow primitives only, keep S-arch backbone. Replac
 
 ### Variant B: Clifford Flow-Matching on the Sphere (CFS)
 Maximal intervention — multivector embeddings + CFA attention + CARE position encoding. Token representations span scalar + vector + bivector + higher grades.
+
+### Upstream GWS Track
+The upstream repo also now contains **Grade-Wise Geometric Scheduling (GWS)**:
+an optimizer/scheduling line of work for Clifford neural networks. It is
+related to CFS and RHF, but it is not part of the core S-FLM benchmark ladder
+above. Treat it as a separate research track for optimization experiments.
 
 ## Key References
 
