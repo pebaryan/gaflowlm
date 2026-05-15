@@ -17,6 +17,11 @@ data/processed/
 wandb/
 .hermes/
 gaflowlm/training_logs/
+training_logs/
+data_cache/
+outputs/
+.claude/
+.playwright-mcp/
 
 # IDE
 .idea/
