@@ -17,7 +17,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# gaflowlm/ uses script-style absolute imports internally; put it on
+# sys.path so `from clifford.engine import ...` and friends still resolve
+# after this script was moved out of the package directory.
+_PKG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "gaflowlm"))
+if _PKG not in sys.path:
+    sys.path.insert(0, _PKG)
 
 import flash_attn_mock
 sys.modules["flash_attn"] = flash_attn_mock
