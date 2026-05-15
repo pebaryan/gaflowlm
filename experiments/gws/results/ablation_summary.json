@@ -1,0 +1,77 @@
+{
+  "n_seeds": 5,
+  "n_ok": 5,
+  "cos_bests": [
+    0.240172,
+    0.124714,
+    0.407595,
+    0.069486,
+    0.189074
+  ],
+  "rotor_bests": [
+    0.516963,
+    0.117617,
+    0.183556,
+    0.119525,
+    0.127381
+  ],
+  "gws_bests": [
+    0.387447,
+    0.108383,
+    0.284102,
+    0.064009,
+    0.223762
+  ],
+  "results": [
+    {
+      "seed": 42,
+      "status": "ok",
+      "cos_best": 0.240172,
+      "rotor_best": 0.516963,
+      "gws_best": 0.387447,
+      "rotor_vs_cos": "Rotor-Uniform vs Cosine:    Cosine wins by 53.5%",
+      "gws_vs_rotor": "GWS-Orthogonal vs Rotor-U:  GWS wins by 25.1%",
+      "gws_vs_cos": "GWS-Orthogonal vs Cosine:   Cosine wins by 38.0%"
+    },
+    {
+      "seed": 43,
+      "status": "ok",
+      "cos_best": 0.124714,
+      "rotor_best": 0.117617,
+      "gws_best": 0.108383,
+      "rotor_vs_cos": "Rotor-Uniform vs Cosine:    Rotor wins by 5.7%",
+      "gws_vs_rotor": "GWS-Orthogonal vs Rotor-U:  GWS wins by 7.9%",
+      "gws_vs_cos": "GWS-Orthogonal vs Cosine:   GWS wins by 13.1%"
+    },
+    {
+      "seed": 44,
+      "status": "ok",
+      "cos_best": 0.407595,
+      "rotor_best": 0.183556,
+      "gws_best": 0.284102,
+      "rotor_vs_cos": "Rotor-Uniform vs Cosine:    Rotor wins by 55.0%",
+      "gws_vs_rotor": "GWS-Orthogonal vs Rotor-U:  Rotor wins by 35.4%",
+      "gws_vs_cos": "GWS-Orthogonal vs Cosine:   GWS wins by 30.3%"
+    },
+    {
+      "seed": 45,
+      "status": "ok",
+      "cos_best": 0.069486,
+      "rotor_best": 0.119525,
+      "gws_best": 0.064009,
+      "rotor_vs_cos": "Rotor-Uniform vs Cosine:    Cosine wins by 41.9%",
+      "gws_vs_rotor": "GWS-Orthogonal vs Rotor-U:  GWS wins by 46.4%",
+      "gws_vs_cos": "GWS-Orthogonal vs Cosine:   GWS wins by 7.9%"
+    },
+    {
+      "seed": 46,
+      "status": "ok",
+      "cos_best": 0.189074,
+      "rotor_best": 0.127381,
+      "gws_best": 0.223762,
+      "rotor_vs_cos": "Rotor-Uniform vs Cosine:    Rotor wins by 32.6%",
+      "gws_vs_rotor": "GWS-Orthogonal vs Rotor-U:  Rotor wins by 43.1%",
+      "gws_vs_cos": "GWS-Orthogonal vs Cosine:   Cosine wins by 15.5%"
+    }
+  ]
+}

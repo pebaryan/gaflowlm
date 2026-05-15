@@ -1,0 +1,67 @@
+{
+  "n_seeds": 5,
+  "n_ok": 5,
+  "gws_bests": [
+    0.095842,
+    0.036747,
+    0.034242,
+    0.104362,
+    0.062919
+  ],
+  "cos_bests": [
+    0.240172,
+    0.124714,
+    0.407595,
+    0.069486,
+    0.189074
+  ],
+  "gws_wins": 4,
+  "cos_wins": 1,
+  "results": [
+    {
+      "seed": 42,
+      "status": "ok",
+      "gws_final": 0.881187,
+      "gws_best": 0.095842,
+      "cos_final": 0.240172,
+      "cos_best": 0.240172,
+      "winner": "GWS"
+    },
+    {
+      "seed": 43,
+      "status": "ok",
+      "gws_final": 0.071453,
+      "gws_best": 0.036747,
+      "cos_final": 0.510919,
+      "cos_best": 0.124714,
+      "winner": "GWS"
+    },
+    {
+      "seed": 44,
+      "status": "ok",
+      "gws_final": 0.034242,
+      "gws_best": 0.034242,
+      "cos_final": 0.677722,
+      "cos_best": 0.407595,
+      "winner": "GWS"
+    },
+    {
+      "seed": 45,
+      "status": "ok",
+      "gws_final": 0.198306,
+      "gws_best": 0.104362,
+      "cos_final": 0.138918,
+      "cos_best": 0.069486,
+      "winner": "Cosine"
+    },
+    {
+      "seed": 46,
+      "status": "ok",
+      "gws_final": 0.062919,
+      "gws_best": 0.062919,
+      "cos_final": 0.209295,
+      "cos_best": 0.189074,
+      "winner": "GWS"
+    }
+  ]
+}

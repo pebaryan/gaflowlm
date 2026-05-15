@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(grep -E \"\\\\.sh$\")",
+      "Bash(TORCHDYNAMO_DISABLE=1 WANDB_MODE=disabled /c/Users/aryan/miniconda3/envs/scabi/python.exe -m main --help)",
+      "Bash(TORCHDYNAMO_DISABLE=1 /c/Users/aryan/miniconda3/envs/scabi/python.exe experiments/gws/gws_comparison.py --device cuda)"
+    ]
+  }
+}

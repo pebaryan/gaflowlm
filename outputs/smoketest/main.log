@@ -1,0 +1,11 @@
+[2026-05-15 18:14:05,909][__main__][INFO] - Starting Training.
+[2026-05-15 18:15:41,093][__main__][INFO] - Starting Training.
+[2026-05-15 18:15:41,292][dataloader][INFO] - Generating sudoku dataset: difficulty=easy, num_train=48000, num_valid=2000, seed=42.
+[2026-05-15 18:26:23,769][dataloader][INFO] - Sudoku dataset saved to D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.
+[2026-05-15 18:26:23,809][dataloader][INFO] - Loading sudoku dataset from D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.
+[2026-05-15 18:38:44,140][__main__][INFO] - Starting Training.
+[2026-05-15 18:38:44,326][dataloader][INFO] - Loading sudoku dataset from D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.
+[2026-05-15 18:38:44,341][dataloader][INFO] - Loading sudoku dataset from D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.
+[2026-05-15 18:40:30,230][__main__][INFO] - Starting Training.
+[2026-05-15 18:40:30,426][dataloader][INFO] - Loading sudoku dataset from D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.
+[2026-05-15 18:40:30,440][dataloader][INFO] - Loading sudoku dataset from D:/code/gaflowlm/data_cache/sudoku_easy_train48000_valid2000_seed42.

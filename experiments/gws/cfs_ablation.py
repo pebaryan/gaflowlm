@@ -202,7 +202,8 @@ def run_experiment(args):
     )
 
     # Output
-    out_dir = Path("gaflowlm/gws/logs")
+    # Save next to the script so results stay grouped with the experiment.
+    out_dir = Path(__file__).resolve().parent / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f"cfs_ablation_k{args.k}_h{args.hidden}_b{args.blocks}_s{args.seed}.jsonl"
 
