@@ -1,19 +1,24 @@
-# Grade-Wise Geometric Scheduling (GWS)
+# Grade-Wise Scheduler (GWS / Rotor-GWS)
 
-A novel learning rate scheduling framework for Clifford/geometric algebra neural networks
-that decomposes gradient updates by multivector grade and applies independent rotor-driven
-schedules to each grade component.
+An auxiliary learning-rate scheduling track for Clifford/geometric algebra
+networks that separates the base schedule from grade-specific phase shifts.
+The current goal is not to replace the main CFS/RHF benchmark plan, but to
+probe whether grade separation improves stability and convergence in Clifford
+models.
 
 ## 1. Core Idea
 
-Standard LR schedulers treat all parameters identically — a single scalar lr(t) scales
-every gradient component equally. In Clifford neural networks, this is geometrically
-lossy: multivector grades carry structurally different information (scalar = magnitude,
-vector = direction, bivector = rotation plane, etc.), and they converge at different
-rates during training.
+Standard LR schedulers treat all parameters identically. In Clifford neural networks,
+multivector grades often behave differently during training, so the hypothesis is that
+staggering the schedule by grade can improve stability or reduce variance.
 
-GWS decomposes the gradient into grade components and applies per-grade schedules
-driven by rotor interpolation on the scheduling algebra Cl(k_s, 0, 0).
+The practical implementation is deliberately simple:
+- keep a global cosine base schedule
+- add per-grade phase offsets
+- apply the resulting grade factors to gradient updates
+
+Rotor language is retained as the conceptual framing, but the working version should
+prefer phase-shifted cosine factors over elaborate rotor objects.
 
 ## 2. Mathematical Formulation
 
@@ -22,45 +27,44 @@ driven by rotor interpolation on the scheduling algebra Cl(k_s, 0, 0).
 Given a multivector parameter M = Σ_g ⟨M⟩_g with grades g ∈ {0, 1, 2, ..., k},
 and its gradient ∇L = Σ_g ⟨∇L⟩_g, the update rule becomes:
 
-  M ← M - Σ_g η_g(t) ⟨∇L⟩_g
-
-where η_g(t) is the grade-specific learning rate at step t.
-
-### 2.2 Rotor Schedules
-
-Each η_g(t) is parameterized by a rotor interpolation on a scheduling algebra
-Cl(k_s, 0, 0) with k_s scheduling dimensions (typically k_s = 2 or 3):
-
-  R_g(t) = exp(-θ_g(t) B_g / 2)
+  M ← M - η_base(t) Σ_g φ_g(t) ⟨∇L⟩_g
 
 where:
-- B_g is a unit bivector in the scheduling algebra (grade-2 element)
-- θ_g(t) ∈ [0, π/2] is the scheduling angle, monotonically increasing
-- The grade-specific LR is: η_g(t) = η_g(0) · ⟨R_g(t)⟩_0
+- η_base(t) is the global cosine schedule
+- φ_g(t) is the grade-specific phase factor
+- the grade factors are small multiplicative modulations, not a full rewrite of AdamW
 
-The scalar part of the rotor gives cos(θ_g(t)), which recovers cosine annealing
-as a special case when all grades share the same bivector and angle.
+### 2.2 Rotor-Inspired Phase Shifts
 
-### 2.3 Multi-Dimensional Generalization
+Each φ_g(t) can be parameterized by a rotor-inspired phase shift, but the
+stable implementation should start with a cosine factor:
 
-Unlike scalar cosine annealing (which traces a 1D arc), rotors can compose
-rotations in different planes simultaneously. With k_s = 3:
+  φ_g(t) = 0.5 * (1 + cos(π t / T + s_g))
 
-  R(t) = R_{12}(t) · R_{23}(t) · R_{13}(t)
+where:
+- s_g is the per-grade phase shift
+- the phase shifts can be fixed or learnable
+- if all s_g are equal, GWS collapses to the base cosine schedule
 
-This allows the scheduler to explore non-trivial paths in the LR space —
-e.g., the vector-grade LR can decrease along one rotation plane while the
-bivector-grade LR follows a different path through another plane.
+### 2.3 Multi-Phase Generalization
 
-### 2.4 Scheduling Angle Functions
+The first useful axis is the number of distinct phases:
+- 1 phase: uniform schedule
+- 2 phases: light separation
+- 1 phase per grade: full grade separation
 
-θ_g(t) can follow several profiles:
+This is the smallest clean ablation and should come before any richer rotor
+composition story.
 
-- **Linear** (cosine-like): θ_g(t) = (π/2) · t/T
-- **Warmup+decay**: θ_g(t) = (π/2) · smoothstep(t/T) where smoothstep
-  provides a warmup period before decay
-- **Cyclic**: θ_g(t) = (π/2) · (1 - cos(2π · cycle(t))) for restarts
-- **Learned**: θ_g(t) parameterized by a small MLP (meta-learning the schedule)
+### 2.4 Phase Function Options
+
+The phase shifts can be:
+
+- **Fixed**: hand-tuned offsets, best for first pass
+- **Learnable**: one scalar per grade, optimized with the main model
+
+Warmup and decay stay in the base scheduler. The grade offsets should stay
+small and local.
 
 ## 3. Experimental Design
 
@@ -69,54 +73,48 @@ bivector-grade LR follows a different path through another plane.
 | Scheduler | Description |
 |-----------|-------------|
 | Constant | Fixed lr throughout training |
-| Cosine annealing | η(t) = η_0 · cos(πt/2T) — single scalar schedule |
-| Cosine with warmup | Warmup + cosine annealing (standard transformer recipe) |
+| Cosine annealing | Single scalar schedule |
+| Cosine with warmup | Warmup + cosine annealing |
 | Step decay | LR drops by factor γ at fixed intervals |
-| OneCycle | Super-convergence schedule (Smith 2018) |
 
 ### 3.2 GWS Variants
 
 | Variant | Description |
 |---------|-------------|
-| GWS-Uniform | Same rotor angle for all grades (reduces to multi-dim cosine) |
-| GWS-Linear | Per-grade linear θ_g(t) with hand-tuned phase offsets |
-| GWS-Warmup | Per-grade warmup+decay schedules |
-| GWS-Cyclic | Per-grade cyclic schedules (different cycle lengths per grade) |
-| GWS-Learned | Per-grade θ_g(t) from small meta-network |
+| GWS-Uniform | Same phase for all grades, should behave like cosine |
+| GWS-2Phase | Two phase groups, to test whether coarse separation helps |
+| GWS-Full | One phase per grade, fixed offsets |
+| GWS-Learned | One learnable phase scalar per grade |
 
-### 3.3 Test Architectures
+### 3.3 Test Architecture
 
 | Architecture | Source | Why |
 |-------------|--------|-----|
-| Clifford Neural Layers (PDE) | Brandstetter et al. 2023 (ICLR) | Published baseline, canonical Clifford architecture |
-| Geometric Clifford Algebra Networks | Ruhe et al. 2023 (ICML) | Group-action layers, different structure to test generality |
-| CFS (ours) | gaflowlm | Domain-specific application, language modeling |
+| CFS (ours) | gaflowlm | The current multivector language-model target |
 
 ### 3.4 Tasks
 
 | Task | Architecture | Metric |
 |------|-------------|--------|
-| 2D Navier-Stokes PDE | Clifford Neural Layers | Rollout MSE |
-| 2D Maxwell equations | Clifford Neural Layers | Field prediction MSE |
-| Vector field prediction | GCAN | Rotation equivariance error |
 | Language modeling (synthetic) | CFS | Eval loss, perplexity |
 | Language modeling (TinyGSM) | CFS | Eval loss, token accuracy |
+| Learning dynamics | CFS | Seed variance, per-grade grad norms |
 
 ### 3.5 Ablations
 
-1. **Grade decomposition vs. scalar**: Is per-grade scheduling better than scalar?
-2. **Rotor vs. cosine**: Does the multi-plane rotation add value over independent
-   per-grade cosine schedules?
-3. **Number of scheduling dimensions k_s**: How does k_s ∈ {1, 2, 3} affect outcomes?
-4. **Grade coupling**: What happens when bivectors B_g share planes vs. are orthogonal?
-5. **Phase offsets**: Does staggering grade schedules (e.g., bivector decays slower
-   than scalar) help, and by how much?
+1. **Uniform vs. phase-shifted**: Does any grade separation help over one shared schedule?
+2. **Two phases vs. full per-grade**: Is coarse separation enough, or do we need one phase per grade?
+3. **Fixed vs. learnable offsets**: Can tiny learned phase parameters improve stability?
+4. **Base cosine vs. base cosine + phases**: Is the gain really from the offsets?
+5. **Per-grade gradient norms**: Do the schedules match the observed convergence dynamics?
 
 ### 3.6 Metrics
 
 - Final validation loss / task metric
 - Convergence speed (steps to 90% of best baseline score)
 - Training stability (loss variance across last 10% of steps)
+- Seed variance across runs
+- Per-grade gradient norm plots
 - Parameter efficiency (same budget, better schedule = better final metric)
 - Inference cost: zero (scheduler only affects training)
 
@@ -124,85 +122,79 @@ bivector-grade LR follows a different path through another plane.
 
 ### 4.1 Primary Claim
 
-Grade-wise scheduling outperforms scalar scheduling on Clifford neural networks,
-with the gap increasing as the model uses more multivector grades.
+Grade-wise scheduling can reduce training variance or improve convergence
+stability on Clifford neural networks, especially when multivector grades
+converge at different rates.
 
 ### 4.2 Secondary Claims
 
-- Rotor parameterization is a natural generalization of cosine annealing that
-  recovers it as a special case (k_s=1, uniform grades)
-- Grade-wise schedules are most beneficial when grades have different convergence
-  dynamics (empirically verifiable by plotting per-grade gradient norms over time)
-- The overhead is negligible: grade decomposition is O(k) on the gradient, and
-  the scheduling algebra is small (k_s << k)
+- A shared cosine base schedule plus small phase offsets is a stable, low-cost
+  way to test grade separation.
+- Per-grade gradient norms should explain when the method helps.
+- If the gains are real, the best story is stability and repeatability first,
+  raw accuracy second.
 
 ### 4.3 Anticipated Counterarguments
 
-- "This is just per-parameter-group LR with extra steps" — No: grade decomposition
-  is structurally determined by the algebra, not arbitrary grouping. The rotor
-  parameterization also couples the schedules geometrically, which independent
-  per-group schedules don't do.
-- "Cosine annealing already works fine" — Yes for scalar networks. For multivector
-  networks, there's constructive and destructive interference between grade
-  updates under a shared schedule that grade-wise scheduling resolves.
+- "This is just per-parameter-group LR" — The answer should be framed as
+  structured grade separation, not arbitrary parameter grouping.
+- "Cosine annealing already works fine" — Maybe, which is why the first
+  experiments should focus on seed variance and convergence smoothness.
 
 ## 5. Implementation Plan
 
 ### Phase 0: Scheduler core (gaflowlm/gws/)
-- [ ] GradeDecomposer: split multivector parameters/grads by grade
-- [ ] RotorScheduler: compute R_g(t) for each grade given schedule config
-- [ ] GWSOptimizer: wrap AdamW with per-grade LR application
-- [ ] Baseline wrappers: CosineAnnealing, OneCycle, StepDecay for fair comparison
+- [ ] GradeDecomposer: split multivector parameters/grads by grade axis
+- [ ] Base cosine schedule plus per-grade phase offsets
+- [ ] GWSOptimizer: wrap AdamW with per-grade gradient scaling
+- [ ] Optional learnable phase offsets as tiny scalar parameters
 
 ### Phase 1: Diagnostics (before full experiments)
-- [ ] Log per-grade gradient norms during standard (scalar-scheduled) training
-- [ ] Check if grades have different convergence dynamics — if they don't,
-  grade-wise scheduling may not help much
-- [ ] Plot grade-wise loss contributions to confirm the hypothesis
+- [ ] Log per-grade gradient norms during scalar-scheduled training
+- [ ] Measure seed variance on a small CFS run
+- [ ] Plot grade-wise gradient magnitudes and update magnitudes
+- [ ] Check whether 1, 2, or full per-grade phases matter most
 
-### Phase 2: Experiments on published architectures
-- [ ] Clone and integrate with Clifford Neural Layers codebase
-- [ ] Run PDE tasks with GWS vs. baselines
-- [ ] Run GCAN tasks with GWS vs. baselines
+### Phase 2: Experiments on CFS only
+- [ ] Run synthetic CFS with cosine vs. GWS-Uniform vs. GWS-Full
+- [ ] Run TinyGSM or GSM8K-test smoke checks with the same comparison
+- [ ] Add a medium-depth CFS setting to check whether the effect grows with depth
 
-### Phase 3: Application to CFS
-- [ ] Apply GWS to CFS flow training
-- [ ] Compare with current CFS baseline (which uses a single cosine schedule)
+### Phase 3: Optional expansion
+- [ ] If the CFS result is stable, try the same schedule on another Clifford model
+- [ ] Only then consider a broader architecture sweep
 
 ## 6. Paper Outline
 
-**Title:** Grade-Wise Geometric Scheduling for Clifford Neural Networks
+**Title:** Grade-Wise Scheduler for Clifford Neural Networks
 
-**Abstract:** We introduce grade-wise geometric scheduling (GWS), a learning rate
-scheduling framework for geometric algebra neural networks that decomposes
-gradient updates by multivector grade and applies independent rotor-driven
-schedules to each grade. Unlike scalar schedulers, GWS respects the algebraic
-structure of multivector parameters, allowing different geometric components
-(scalar, vector, bivector, etc.) to converge at their natural rates. We show
-that rotor interpolation generalizes cosine annealing to multi-dimensional
-schedule paths and demonstrate improvements on PDE modeling, vector field
-prediction, and language modeling tasks.
+**Abstract:** We introduce GWS, an auxiliary learning-rate scheduling
+framework for geometric algebra neural networks that adds small per-grade
+phase offsets on top of a shared cosine base schedule. The method is designed
+to test whether multivector grades benefit from staggered optimization, and
+whether that effect shows up as lower seed variance, smoother training, or
+faster convergence on CFS-style models. The paper contribution is primarily
+about optimization stability and diagnostics, not a broad architecture sweep.
 
 1. Introduction
 2. Background: Clifford algebras, cosine annealing, LR scheduling
-3. Method: Grade decomposition, rotor schedules, GWS optimizer
-4. Experiments: PDE tasks, vector fields, CFS language model
-5. Analysis: Per-grade dynamics, ablations, when does it matter?
-6. Related work: LR scheduling, Clifford NNs, meta-learning schedules
+3. Method: Grade decomposition, phase-shifted schedules, GWS optimizer
+4. Experiments: CFS synthetic and tiny real-data runs
+5. Analysis: Per-grade dynamics, seed variance, when does it matter?
+6. Related work: LR scheduling, Clifford NNs, optimization stability
 7. Conclusion
 
 ## 7. Venue Targets
 
-- **ICML / NeurIPS** (Optimization track) — if experiments are strong
-- **ICLR** (Optimization or Representation learning) — natural fit
-- **Geometric Science of Information (GSI)** — smaller but perfectly targeted
-- **Topical workshop** at ICML/NeurIPS on geometric deep learning — lower bar, good feedback
+- **ICLR / workshop** if the stability result is clear
+- **Geometric Science of Information (GSI)** if the contribution stays narrow
+- **Optimization workshop** at ICML/NeurIPS if the seed-variance story is strong
 
 ## 8. Risks & Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Grade-wise scheduling shows no improvement | Diagnostics phase (1) validates the hypothesis before committing to full experiments. If grades converge at the same rate, pivot to rotor-interpolation-as-generalized-cosine as the contribution |
-| Only helps on one architecture | Test on 2+ published architectures before CFS |
-| Reviewers see it as "just per-group LR" | Emphasize: (1) structure-determined grouping, not arbitrary; (2) rotor coupling between grades; (3) cosine annealing as a special case |
-| Implementation overhead on external codebases | Keep GWS as a standalone optimizer wrapper; minimal integration needed |
+| Grade-wise scheduling shows no improvement | Keep the auxiliary claim narrow: stability diagnostics only, or drop the paper entirely |
+| Only helps on one architecture | Do not overgeneralize; present it as a CFS-specific optimization study |
+| Reviewers see it as "just per-group LR" | Emphasize structured grade separation and seed-variance evidence |
+| Implementation overhead on external codebases | Keep the first version as a thin optimizer wrapper with cosine base + offsets |
