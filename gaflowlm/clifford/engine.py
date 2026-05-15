@@ -116,6 +116,60 @@ def build_reverse_signs(
     return signs
 
 
+def _extract_sparse_cayley(dense: torch.Tensor) -> tuple:
+    """Extract (j, k, i, sign) triples from a dense Cayley-shaped tensor.
+
+    Returns int64 index buffers plus a float sign buffer suitable for
+    a scatter_add-based contraction:
+        product[..., m] = A[..., j[m]] * B[..., k[m]] * sign[m]
+        out[..., i[m]]  += product[..., m]
+    """
+    nz = dense.nonzero(as_tuple=False)  # [nnz, 3]
+    j_idx = nz[:, 0].contiguous()
+    k_idx = nz[:, 1].contiguous()
+    i_idx = nz[:, 2].contiguous()
+    signs = dense[j_idx, k_idx, i_idx].contiguous()
+    return j_idx, k_idx, i_idx, signs
+
+
+def build_wedge_cayley(
+    cayley: torch.Tensor,
+    k: int,
+) -> torch.Tensor:
+    """Wedge Cayley: keep entries where grade(i) == grade(j) + grade(k).
+
+    For homogeneous A_r, B_s in Cl(k,0,0):
+        A_r ∧ B_s = ⟨A_r B_s⟩_{r+s}
+    Linear extension covers mixed-grade multivectors.
+    """
+    n = 1 << k
+    grade = torch.tensor([bin(i).count('1') for i in range(n)])
+    g_j = grade.view(n, 1, 1)
+    g_k = grade.view(1, n, 1)
+    g_i = grade.view(1, 1, n)
+    mask = (g_i == g_j + g_k).to(cayley.dtype)
+    return cayley * mask
+
+
+def build_inner_cayley(
+    cayley: torch.Tensor,
+    k: int,
+) -> torch.Tensor:
+    """Inner Cayley: keep entries where grade(i) == |grade(j) - grade(k)|.
+
+    For homogeneous A_r, B_s in Cl(k,0,0):
+        A_r · B_s = ⟨A_r B_s⟩_{|r-s|}
+    Linear extension covers mixed-grade multivectors.
+    """
+    n = 1 << k
+    grade = torch.tensor([bin(i).count('1') for i in range(n)])
+    g_j = grade.view(n, 1, 1)
+    g_k = grade.view(1, n, 1)
+    g_i = grade.view(1, 1, n)
+    mask = (g_i == (g_j - g_k).abs()).to(cayley.dtype)
+    return cayley * mask
+
+
 # ---------------------------------------------------------------------------
 # Clifford Algebra Operations
 # ---------------------------------------------------------------------------
@@ -144,6 +198,8 @@ class CliffordEngine(nn.Module):
         cayley = build_cayley_tensor(k, device, dtype)
         grade_masks = build_grade_masks(k, device, dtype)
         reverse_signs = build_reverse_signs(k, device, dtype)
+        wedge_cayley = build_wedge_cayley(cayley, k)
+        inner_cayley = build_inner_cayley(cayley, k)
 
         self.register_buffer('cayley', cayley)
         self.register_buffer('grade_masks', grade_masks)
@@ -155,14 +211,74 @@ class CliffordEngine(nn.Module):
         self.register_buffer('bivector_mask', grade_masks[2:3])    # [1, n]
         self.register_buffer('pseudoscalar_mask', grade_masks[k:k+1])  # [1, n]
 
+        # Sparse (j, k, i, sign) triples for geometric / wedge / inner products.
+        # geometric_product, outer_product, inner_product all go through
+        # _sparse_gp using these. Far cheaper than einsum over a dense [n,n,n]
+        # tensor at k>=4.
+        gp_j, gp_k, gp_i, gp_s = _extract_sparse_cayley(cayley)
+        we_j, we_k, we_i, we_s = _extract_sparse_cayley(wedge_cayley)
+        in_j, in_k, in_i, in_s = _extract_sparse_cayley(inner_cayley)
+        self.register_buffer('_gp_j', gp_j)
+        self.register_buffer('_gp_k', gp_k)
+        self.register_buffer('_gp_i', gp_i)
+        self.register_buffer('_gp_signs', gp_s)
+        self.register_buffer('_wedge_j', we_j)
+        self.register_buffer('_wedge_k', we_k)
+        self.register_buffer('_wedge_i', we_i)
+        self.register_buffer('_wedge_signs', we_s)
+        self.register_buffer('_inner_j', in_j)
+        self.register_buffer('_inner_k', in_k)
+        self.register_buffer('_inner_i', in_i)
+        self.register_buffer('_inner_signs', in_s)
+
+        # Flat index buffers for grade-1 (vector) and grade-2 (bivector) basis
+        # blades, used by projection layers. Grade-r blades sit at flat
+        # indices whose bitmask has popcount r — *not* at the first
+        # binomial(k, r) sequential slots. Earlier versions of this engine
+        # used `mv[..., 1:k+1] = ...` for grade-1 which silently writes into
+        # bivector slots once k ≥ 3.
+        vec_idx = torch.tensor(
+            [i for i in range(self.n) if bin(i).count('1') == 1],
+            dtype=torch.long,
+        )
+        biv_idx = torch.tensor(
+            [i for i in range(self.n) if bin(i).count('1') == 2],
+            dtype=torch.long,
+        )
+        self.register_buffer('vector_indices', vec_idx)
+        self.register_buffer('bivector_indices', biv_idx)
+
     # -------------------------------------------------------------------
     # Core algebra
     # -------------------------------------------------------------------
 
+    def _sparse_product(
+        self,
+        A: torch.Tensor,
+        B: torch.Tensor,
+        j_idx: torch.Tensor,
+        k_idx: torch.Tensor,
+        i_idx: torch.Tensor,
+        signs: torch.Tensor,
+    ) -> torch.Tensor:
+        """Generic sparse Cayley contraction shared by GP / wedge / inner.
+
+        Given precomputed nonzero triples (j_idx, k_idx, i_idx, signs):
+            out[..., i_idx[m]] += signs[m] * A[..., j_idx[m]] * B[..., k_idx[m]]
+        """
+        # Index-select keeps A and B's batch shape; the elementwise multiply
+        # below broadcasts those shapes together. Size the output from the
+        # broadcast result, not from A alone — A may be broadcasted against
+        # a larger B (e.g. positional rotor vs token batch in CARE).
+        products = A.index_select(-1, j_idx) * B.index_select(-1, k_idx) * signs
+        out = products.new_zeros(*products.shape[:-1], self.n)
+        return out.index_add_(-1, i_idx, products)
+
     def geometric_product(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         """Compute geometric product AB in Cl(k,0,0).
 
-        Uses precomputed Cayley tensor: C_{ijk} where e_i * e_j = C_{ijk} e_k.
+        Uses precomputed sparse Cayley triples (~n² nonzeros for k≥1, vs the
+        n³ cost of a dense einsum).
 
         Args:
             A: [..., n] multivector coefficients.
@@ -171,7 +287,9 @@ class CliffordEngine(nn.Module):
         Returns:
             AB: [..., n] multivector coefficients.
         """
-        return torch.einsum('...j,...k,jki->...i', A, B, self.cayley)
+        return self._sparse_product(
+            A, B, self._gp_j, self._gp_k, self._gp_i, self._gp_signs,
+        )
 
     def reverse_mv(self, M: torch.Tensor) -> torch.Tensor:
         """Reverse of multivector: M̃.
@@ -211,19 +329,36 @@ class CliffordEngine(nn.Module):
         return M * self.bivector_mask.squeeze(0)
 
     def outer_product(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
-        """Outer (wedge) product A ∧ B = (AB - BA) / 2."""
-        AB = self.geometric_product(A, B)
-        BA = self.geometric_product(B, A)
-        return (AB - BA) / 2
+        """Wedge product A ∧ B.
+
+        For homogeneous A_r, B_s: A_r ∧ B_s = ⟨A_r B_s⟩_{r+s}.
+        Extended bilinearly to multigrade inputs via the precomputed
+        grade-(r+s)-filtered Cayley tensor.
+
+        Note: (AB - BA)/2 equals A∧B only when both inputs are grade-1.
+        For mixed grades this method is the correct definition; the
+        commutator is exposed separately as `commutator`.
+        """
+        return self._sparse_product(
+            A, B, self._wedge_j, self._wedge_k, self._wedge_i, self._wedge_signs,
+        )
 
     def inner_product(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
-        """Inner (dot) product A · B = (AB + BA) / 2."""
-        AB = self.geometric_product(A, B)
-        BA = self.geometric_product(B, A)
-        return (AB + BA) / 2
+        """Inner product A · B (Hestenes/symmetric convention).
+
+        For homogeneous A_r, B_s: A_r · B_s = ⟨A_r B_s⟩_{|r-s|}.
+        Extended bilinearly to multigrade inputs via the precomputed
+        grade-||r-s||-filtered Cayley tensor.
+        """
+        return self._sparse_product(
+            A, B, self._inner_j, self._inner_k, self._inner_i, self._inner_signs,
+        )
 
     def commutator(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
-        """Commutator [A, B] = AB - BA (Lie bracket)."""
+        """Commutator [A, B] = AB - BA (Lie bracket).
+
+        Distinct from the wedge product for non-vector inputs.
+        """
         AB = self.geometric_product(A, B)
         BA = self.geometric_product(B, A)
         return AB - BA
@@ -258,16 +393,26 @@ class CliffordEngine(nn.Module):
         return self.outer_product(a, b) / 2
 
     def rotor_exp(self, B: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-        """Exponential of a bivector: R = exp(B).
+        """Exponential of a *simple* bivector: R = exp(B).
 
-        For a bivector B in Cl(k,0,0):
+        For a simple bivector B (i.e. B² ∈ ℝ) in Cl(k,0,0):
             R = cos(θ) + (B/θ) sin(θ)   where θ = √(-⟨B²⟩₀)
 
         If B ≈ 0 (small angle):
             R = 1 + B   (first-order approximation)
 
+        WARNING: This closed form requires B to be *simple*, i.e. to lie
+        in a single rotation plane (B∧B = 0). For Cl(k,0,0) with k≥4 a
+        generic grade-2 element is a sum of independent simple bivectors
+        and the formula above is wrong — a polar/Cartan decomposition
+        into independent planes is needed. Bivectors produced by
+        `bivector_from_vectors` (from two grade-1 inputs) are always
+        simple, so the standard RHF / S-FLM training path is safe; CFS
+        code that constructs general bivectors from network outputs is
+        not. See https://en.wikipedia.org/wiki/Bivector#Higher_dimensions
+
         Args:
-            B: [..., n] bivector (grade-2 multivector).
+            B: [..., n] bivector (grade-2 multivector), assumed simple.
             eps: Small constant for numerical stability.
 
         Returns:
@@ -338,13 +483,20 @@ class CliffordEngine(nn.Module):
         return self.geometric_product(Rx, R_rev)
 
     def bivector_log(self, R: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
-        """Logarithm of a rotor: B = log(R).
+        """Logarithm of a *simple* rotor: B = log(R).
 
         For R = cos(θ) + (B/θ)sin(θ):
             B = (θ/sin(θ)) · ⟨R⟩₂
 
+        WARNING: Only valid when R is the exponential of a simple bivector
+        (single rotation plane). For Cl(k,0,0) with k≥4 a general rotor
+        is a product of independent simple rotors and requires a polar
+        decomposition; the formula above silently returns the wrong
+        bivector in that case. Numerical precision also degrades near
+        θ ≈ π (the acos branch); a polar-form log is more robust there.
+
         Args:
-            R: [..., n] rotor (even-grade multivector).
+            R: [..., n] rotor (even-grade multivector), assumed simple.
             eps: Small constant.
 
         Returns:
@@ -367,8 +519,8 @@ class CliffordEngine(nn.Module):
     def embed_to_clifford(self, x: torch.Tensor) -> torch.Tensor:
         """Embed a d-dimensional vector into Cl(k,0,0) as a grade-1 multivector.
 
-        Pads or truncates x to k dimensions and places in the vector slots
-        of the multivector representation.
+        Writes the first min(d, k) components of x into the grade-1 blade
+        slots (indices 1, 2, 4, 8, ..., 2^(k-1)). Other grades stay zero.
 
         Args:
             x: [..., d] vector tensor.
@@ -377,35 +529,33 @@ class CliffordEngine(nn.Module):
             [..., n] multivector with only grade-1 components nonzero.
         """
         d = x.shape[-1]
-        batch_shape = x.shape[:-1]
-        mv = torch.zeros(*batch_shape, self.n, device=x.device, dtype=x.dtype)
-
-        if d >= self.k:
-            mv[..., 1:self.k + 1] = x[..., :self.k]
-        else:
-            mv[..., 1:d + 1] = x[..., :d]
-
+        n_fill = min(d, self.k)
+        mv = x.new_zeros(*x.shape[:-1], self.n)
+        idx = self.vector_indices[:n_fill]
+        mv.index_copy_(-1, idx, x[..., :n_fill])
         return mv
 
     def clifford_to_embed(self, mv: torch.Tensor, d: int) -> torch.Tensor:
-        """Extract d-dimensional vector from grade-1 components of multivector.
+        """Extract a d-dim vector from the grade-1 slots of a multivector.
 
-        Args:
-            mv: [..., n] multivector.
-            d: Output dimension.
-
-        Returns:
-            [..., d] vector tensor.
+        Reads from the grade-1 blade indices (1, 2, 4, ..., 2^(k-1)).
+        If d > k, the trailing (d - k) entries are zero.
         """
-        return mv[..., 1:d + 1]
+        n_fill = min(d, self.k)
+        idx = self.vector_indices[:n_fill]
+        head = mv.index_select(-1, idx)
+        if d == n_fill:
+            return head
+        tail = mv.new_zeros(*mv.shape[:-1], d - n_fill)
+        return torch.cat([head, tail], dim=-1)
 
     def _bivector_indices(self) -> list:
-        """Get flat indices of grade-2 basis blades."""
-        indices = []
-        for i in range(self.n):
-            if bin(i).count('1') == 2:
-                indices.append(i)
-        return indices
+        """Flat indices of grade-2 basis blades (Python list, for back-compat).
+
+        New code should prefer the `bivector_indices` buffer (a long tensor),
+        which can be passed directly to index_select / index_copy_.
+        """
+        return self.bivector_indices.tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -450,17 +600,15 @@ class EmbedToClifford(nn.Module):
         # Grade-0: learned scalar bias
         mv[..., 0] = self.scalar_bias.squeeze()
 
-        # Grade-1: linear projection
+        # Grade-1: scatter into grade-1 blade slots (indices 1, 2, 4, 8, ...).
         vec = self.vec_proj(x)  # [..., k]
-        k = engine.k
-        mv[..., 1:k + 1] = vec[..., :k]
+        n_vec = min(engine.vector_indices.numel(), vec.shape[-1])
+        mv.index_copy_(-1, engine.vector_indices[:n_vec], vec[..., :n_vec])
 
-        # Grade-2: bivector projection
+        # Grade-2: scatter into grade-2 blade slots.
         biv = self.biv_proj(x)  # [..., n_bvec]
-        biv_indices = engine._bivector_indices()
-        n_fill = min(len(biv_indices), biv.shape[-1])
-        for i in range(n_fill):
-            mv[..., biv_indices[i]] = biv[..., i]
+        n_biv = min(engine.bivector_indices.numel(), biv.shape[-1])
+        mv.index_copy_(-1, engine.bivector_indices[:n_biv], biv[..., :n_biv])
 
         return mv
 
@@ -492,19 +640,19 @@ class CliffordToEmbed(nn.Module):
         Returns:
             [..., d_embed] embedding.
         """
-        k = engine.k
-
         # Grade-0: scalar
         g0 = mv[..., 0:1]  # [..., 1]
 
-        # Grade-1: vector
-        g1 = mv[..., 1:k + 1]  # [..., k]
+        # Grade-1: gather grade-1 blades into [..., k].
+        g1 = mv.index_select(-1, engine.vector_indices)
 
-        # Grade-2: bivector
-        biv_indices = engine._bivector_indices()
-        n_fill = min(len(biv_indices), self.n_bvec)
-        g2 = torch.zeros(*mv.shape[:-1], self.n_bvec, device=mv.device, dtype=mv.dtype)
-        for i in range(n_fill):
-            g2[..., i] = mv[..., biv_indices[i]]
+        # Grade-2: gather grade-2 blades into [..., n_bvec]. Pad with zeros
+        # if the projection layer is wider than the algebra provides.
+        n_fill = min(engine.bivector_indices.numel(), self.n_bvec)
+        if n_fill == self.n_bvec:
+            g2 = mv.index_select(-1, engine.bivector_indices[:n_fill])
+        else:
+            g2 = mv.new_zeros(*mv.shape[:-1], self.n_bvec)
+            g2[..., :n_fill] = mv.index_select(-1, engine.bivector_indices[:n_fill])
 
         return self.scalar_proj(g0) + self.vec_proj(g1) + self.biv_proj(g2)
