@@ -23,8 +23,14 @@ Two RHF modes:
 import torch
 import torch.nn.functional as F
 
-from . import algo, samplers, utils
-from .rotor_utils import (
+# Script-style absolute imports to match the rest of the upstream
+# training stack (algo.py, samplers.py, utils.py, dataloader.py, etc.),
+# which all assume gaflowlm/ is on sys.path. Converting just rhf_algo
+# to package-relative imports broke main.py and standalone_train.py.
+import algo
+import samplers
+import utils
+from rotor_utils import (
     rotor_slerp,
     rotor_log_map,
     rotor_exp_map,
@@ -32,7 +38,7 @@ from .rotor_utils import (
     bivector_velocity,
     sphere_normalize,
 )
-from .samplers import SFMContext, sfm_compute_velocity, sfm_step_size
+from samplers import SFMContext, sfm_compute_velocity, sfm_step_size
 
 
 class RHFSFM(algo.SFM):

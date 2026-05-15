@@ -14,8 +14,13 @@ without requiring the full Hydra/Lightning pipeline.
 import sys
 import os
 
-# Ensure gaflowlm/ directory is on sys.path for bare imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# This file targets the upstream S-FLM training stack, which uses
+# script-style absolute imports (`import algo`, `from samplers import ...`)
+# resolved off gaflowlm/. Put that directory on sys.path explicitly so
+# the imports work from the relocated tests/ folder.
+_PKG = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "gaflowlm"))
+if _PKG not in sys.path:
+    sys.path.insert(0, _PKG)
 
 # Mock flash_attn — installed flash_attn Triton kernels fail on V100/RTX 3060
 # with this CUDA/PyTorch version. Use pure-PyTorch fallback instead.
