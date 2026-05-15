@@ -225,9 +225,9 @@ def run_comparison(args):
     else:
         print("VERDICT: GWS stays EXPERIMENTAL — baseline is competitive or better")
 
-    # Save
-    out_dir = Path("training_logs")
-    out_dir.mkdir(exist_ok=True)
+    # Save next to the script so results stay grouped with the experiment.
+    out_dir = Path(__file__).resolve().parent / "results"
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / f"gws_comparison_k{args.k}_h{args.hidden}_b{args.blocks}_{args.steps}steps.json"
     with open(out_file, 'w') as f:
         json.dump({
