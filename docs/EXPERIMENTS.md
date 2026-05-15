@@ -12,6 +12,19 @@
 | TinyGSM | Perplexity | — | ≤ S-FLM | ≤ S-FLM |
 | OpenWebText | Perplexity | — | ≤ S-FLM | ≤ S-FLM |
 
+### Reference vs. Practical Execution
+
+The table above is the target benchmark set. The original S-FLM runs were
+cluster-scale jobs, while this workspace is split across the current machine
+and `mi25`, where the GPU may be occupied by the llama.cpp server.
+
+| Tier | What it is | Typical execution |
+|------|------------|-------------------|
+| Reference S-FLM | Original paper protocol | Multi-GPU training, checkpoint eval, full sampling runs |
+| Local smoke | Fast correctness check | Synthetic overfit, GSM8K-test reconstruction, small-step sampler checks |
+| Local real-data | Small-scale validation | TinyGSM subset or GSM8K-test fixture on one GPU or CPU fallback |
+| mi25 eval slot | Shared-GPU validation | Run only when the GPU is free; otherwise use CPU smoke checks |
+
 ### Diagnostic Benchmarks (novel to GAFlowLM)
 
 | Benchmark | What it tests |
@@ -23,6 +36,16 @@
 | Rotor composition error | ‖R₃ - R₂R₁‖ for multi-step sampling |
 | Low-NFE curve | Accuracy at {1,2,4,8,16,32,64,128,256,512,1024} steps |
 | Real-data smoke test | Token reconstruction on the local GSM8K-test fixture |
+
+### Recommended Plan For This Workspace
+
+Use the following order when validating changes here:
+
+1. Synthetic overfit regression test.
+2. GSM8K-test reconstruction smoke test.
+3. TinyGSM subset run if the current machine has an idle GPU.
+4. mi25 checkpoint evaluation when the shared GPU slot is available.
+5. Full S-FLM-style benchmark only after you have a dedicated multi-GPU run.
 
 ## Ablation Studies
 
@@ -105,15 +128,18 @@ adaptive_ema: 0.9
 
 ### Hardware
 
-- Single A100 80GB (same as S-FLM training)
-- Expected: ~4 steps/sec for RHF (similar to S-FLM), ~2-3 steps/sec for CFS (overhead from geometric products)
+- Reference S-FLM training: multi-GPU, originally 2x4 GPUs for TinyGSM and 4x4 GPUs for OWT.
+- Current workspace: one local GPU if available; otherwise CPU for smoke tests.
+- `mi25`: treat the GPU as shared with the llama.cpp server and use it only when the slot is free.
+- Expected: synthetic and GSM8K-test probes finish quickly on CPU/GPU; full TinyGSM/OWT benchmarks are not the default on this hardware.
 
 ### Evaluation Schedule
 
-- Every 5000 steps: GSM8K (T=1), norm drift, grade energy
-- Every 25000 steps: full benchmark suite
-- Final: all benchmarks at 250k steps
-- For quick branch validation, run the standalone CFS benchmark against `gaflowlm/data/gsm8k_test.json` and report reconstruction accuracy vs. reverse-time steps.
+- Every code change: run the synthetic overfit regression test.
+- Before merge: run the GSM8K-test reconstruction smoke test.
+- When the current machine has a free GPU: run a TinyGSM subset or a short checkpoint eval.
+- On `mi25`: run the same smoke tests, and only schedule longer evals when the GPU is not occupied by llama.cpp.
+- For the original S-FLM-aligned benchmark, use the upstream scripts with an existing checkpoint and the original multi-GPU setup.
 
 ## Success Criteria
 

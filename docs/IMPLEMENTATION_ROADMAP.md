@@ -119,6 +119,17 @@ python -m main data=sudoku model=small-sphere-arch-rhf algo=rhf \
   algo.renormalize_weights=True trainer.max_steps=250000
 ```
 
+## Practical Validation Tiers
+
+The original S-FLM protocol assumes multi-GPU training and checkpoint eval.
+For this repo and the available hardware, use the following ladder:
+
+1. Synthetic overfit regression test for CFS and RHF code paths.
+2. GSM8K-test reconstruction smoke test on a single GPU or CPU fallback.
+3. TinyGSM subset runs when a local GPU is available.
+4. mi25 shared-GPU validation only when the llama.cpp server is not using it.
+5. Full S-FLM-aligned benchmark only with a dedicated multi-GPU setup.
+
 ## Current Status
 
 **Phase 0: Research investigation (COMPLETE)**

@@ -10,6 +10,20 @@ Research investigation into extending hyperspherical flow-based language modelin
 
 See [Implementation Roadmap](docs/IMPLEMENTATION_ROADMAP.md) for current task list.
 
+## Benchmark Scope
+
+The original S-FLM training runs used multi-GPU jobs. This workspace uses a
+tiered validation plan instead:
+
+- **Reference S-FLM protocol:** original multi-GPU benchmark setup
+- **Local smoke tests:** synthetic overfit and GSM8K-test reconstruction
+- **Local real-data checks:** TinyGSM subset or GSM8K-test fixture on an
+  available GPU
+- **mi25 shared-slot checks:** same smoke tests, only using the GPU when the
+  llama.cpp server is not occupying it
+
+See [Experiment Plan](docs/EXPERIMENTS.md) for the detailed benchmark ladder.
+
 ## Quick Links
 
 | Document | Description |
