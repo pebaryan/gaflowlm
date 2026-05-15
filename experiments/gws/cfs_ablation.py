@@ -262,7 +262,7 @@ def run_experiment(args):
         for rec in records:
             f.write(json.dumps(rec) + '\n')
 
-    print(f"\nAblation complete. {len(records)} records → {out_file}")
+    print(f"\nAblation complete. {len(records)} records -> {out_file}")
 
     # Summary
     if len(records) >= 2:
@@ -276,14 +276,14 @@ def run_experiment(args):
         print(f"  GWS-Orthogonal: best={best_gws:.6f}")
 
         if best_gws < best_cos:
-            print(f"  → GWS vs Cosine: GWS wins by {(best_cos - best_gws)/best_cos*100:.1f}%")
+            print(f"  -> GWS vs Cosine: GWS wins by {(best_cos - best_gws)/best_cos*100:.1f}%")
         else:
-            print(f"  → GWS vs Cosine: Cosine wins by {(best_gws - best_cos)/best_gws*100:.1f}%")
+            print(f"  -> GWS vs Cosine: Cosine wins by {(best_gws - best_cos)/best_gws*100:.1f}%")
 
         if best_gws < best_rotor:
-            print(f"  → GWS vs Rotor:  GWS wins by {(best_rotor - best_gws)/best_rotor*100:.1f}%")
+            print(f"  -> GWS vs Rotor:  GWS wins by {(best_rotor - best_gws)/best_rotor*100:.1f}%")
         else:
-            print(f"  → GWS vs Rotor:  Rotor wins by {(best_gws - best_rotor)/best_gws*100:.1f}%")
+            print(f"  -> GWS vs Rotor:  Rotor wins by {(best_gws - best_rotor)/best_gws*100:.1f}%")
 
 
 def main():
