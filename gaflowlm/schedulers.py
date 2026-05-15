@@ -126,9 +126,15 @@ class GWScheduler(nn.Module):
         if device is None:
             device = self.phase_offsets.device
         progress = min(max(step, 0) / max(1, self.total_steps), 1.0)
-        phase = math.pi * progress
+        # Positive phase_offsets DELAY the cosine decay for higher grades.
+        # Each offset is treated as a fraction of the total schedule that
+        # the grade's decay is stretched by: factor_g = 0.5*(1+cos(π(1-δ_g)·p))
+        # where δ_g = offset_g / (2π) so small offsets give small delays.
         offsets = self.phase_offsets.to(device=device, dtype=torch.float64)
-        return 0.5 * (1.0 + torch.cos(phase + offsets))
+        stretch = 1.0 - offsets / (2.0 * math.pi)
+        stretch = stretch.clamp(min=0.1)  # avoid negative stretch
+        phase = math.pi * stretch * progress
+        return 0.5 * (1.0 + torch.cos(phase))
 
     def _blade_scale(
         self,
@@ -185,8 +191,9 @@ class GWScheduler(nn.Module):
         device = self.phase_offsets.device
         offsets = self.phase_offsets
         progress = min(max(self.current_step, 0) / max(1, self.total_steps), 1.0)
-        base_phase = math.pi * progress
-        phase = base_phase + offsets.to(device=device, dtype=torch.float64)
+        stretch = 1.0 - offsets.to(device=device, dtype=torch.float64) / (2.0 * math.pi)
+        stretch = stretch.clamp(min=0.1)
+        phase = math.pi * stretch * progress
         factors = 0.5 * (1.0 + torch.cos(phase))
         effective = factors * energy.to(device=device, dtype=torch.float64)
         target = effective.mean().clamp(min=1e-12)
@@ -195,7 +202,7 @@ class GWScheduler(nn.Module):
         # approach the mean effective update across grades.
         residual = effective - target
         grad = 2.0 * residual * energy.to(device=device, dtype=torch.float64)
-        grad = grad * (-0.5 * torch.sin(phase))
+        grad = grad * (0.5 * torch.sin(phase))
         grad = grad / energy.mean().clamp(min=1.0)
 
         with torch.no_grad():
@@ -209,11 +216,12 @@ class GWScheduler(nn.Module):
     def scale_gradients(self):
         """Scale multivector gradients in-place before the optimizer step."""
         blade_scale = self._blade_scale(step=self.current_step)
+        need_energy = self.learnable_phase_offsets and self.phase_update_lr > 0
         last_grade_energy = torch.zeros(
             self.num_grades,
             device=blade_scale.device,
             dtype=torch.float64,
-        )
+        ) if need_energy else None
 
         for group in self.optimizer.param_groups:
             if group.get("grade_id") == "scalar":
@@ -224,11 +232,13 @@ class GWScheduler(nn.Module):
                 axes = self._multivector_axes.get(id(param))
                 if not axes:
                     continue
-                scaled = param.grad
-                last_grade_energy = last_grade_energy + self._accumulate_grade_energy(scaled, axes)
+                g = param.grad.data
+                # Cast blade_scale once for this parameter's dtype/device
+                bs = blade_scale.to(device=g.device, dtype=g.dtype)
+                if need_energy:
+                    last_grade_energy = last_grade_energy + self._accumulate_grade_energy(g, axes)
                 for axis in axes:
-                    scaled = scaled * _broadcast_scale(blade_scale.to(device=scaled.device, dtype=scaled.dtype), scaled, axis)
-                param.grad.copy_(scaled)
+                    g.mul_(_broadcast_scale(bs, g, axis))
 
         self._last_grade_energy = last_grade_energy
 
