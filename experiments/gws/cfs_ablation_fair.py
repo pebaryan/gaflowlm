@@ -155,10 +155,10 @@ def run(args):
         loss_cos = train_step(model_cos, engine, mv_params, opt_cos, lr, None, x0, mv_dim)
 
         grade_lrs = grade(step)
-        bs_unfair = build_blade_scale(engine, grade_lrs, args.lr, device, model_unfair.embed_to_clifford.weight.dtype, fair=False)
+        bs_unfair = build_blade_scale(engine, grade_lrs, args.lr, device, model_unfair.token_to_mv.weight.dtype, fair=False)
         loss_unfair = train_step(model_unfair, engine, mv_params, opt_unfair, lr, bs_unfair, x0, mv_dim)
 
-        bs_fair = build_blade_scale(engine, grade_lrs, args.lr, device, model_fair.embed_to_clifford.weight.dtype, fair=True)
+        bs_fair = build_blade_scale(engine, grade_lrs, args.lr, device, model_fair.token_to_mv.weight.dtype, fair=True)
         loss_fair = train_step(model_fair, engine, mv_params, opt_fair, lr, bs_fair, x0, mv_dim)
 
         if step % args.log_interval == 0:

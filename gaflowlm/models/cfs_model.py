@@ -53,7 +53,7 @@ class CFSModel(nn.Module):
         dt = engine.cayley.dtype if engine else None
 
         self.token_embedding = nn.Embedding(vocab_size, hidden_size, dtype=dt)
-        self.embed_to_clifford = nn.Linear(hidden_size, self.mv_dim, dtype=dt)
+        self.token_to_mv = nn.Linear(hidden_size, self.mv_dim, dtype=dt)
 
         self.time_feature_dim = max(8, hidden_size // 4)
         self.time_mlp = nn.Sequential(
@@ -83,13 +83,13 @@ class CFSModel(nn.Module):
         self.embed_norm = nn.LayerNorm(hidden_size, dtype=dt)
         self.velocity_head = nn.Linear(self.mv_dim, self.mv_dim, bias=False, dtype=dt)
         self.dropout = nn.Dropout(dropout)
-        self.clifford_to_embed = nn.Linear(self.mv_dim, hidden_size, dtype=dt)
+        self.mv_to_token = nn.Linear(self.mv_dim, hidden_size, dtype=dt)
 
     def _time_features(self, t: torch.Tensor) -> torch.Tensor:
         """Build sinusoidal time features."""
         if t.ndim == 1:
             t = t.unsqueeze(-1)
-        t = t.to(dtype=self.embed_to_clifford.weight.dtype)
+        t = t.to(dtype=self.token_to_mv.weight.dtype)
 
         half = self.time_feature_dim // 2
         if half == 0:
@@ -110,14 +110,14 @@ class CFSModel(nn.Module):
         """Encode token IDs into clean multivectors."""
         h = self.token_embedding(x)
         h = self.dropout(h)
-        mv = self.embed_to_clifford(h)
+        mv = self.token_to_mv(h)
         if hasattr(self, "care"):
             mv = self.care(mv, pos=positions)
         return mv
 
     def decode_embedding(self, mv: torch.Tensor) -> torch.Tensor:
         """Project multivectors back into hidden embedding space."""
-        h = self.clifford_to_embed(mv)
+        h = self.mv_to_token(mv)
         return self.embed_norm(h)
 
     def decode_logits(self, mv: torch.Tensor) -> torch.Tensor:
@@ -455,7 +455,7 @@ class CFSAlgorithm:
                 seq_len,
                 self.model.mv_dim,
                 device=self.device,
-                dtype=self.model.embed_to_clifford.weight.dtype,
+                dtype=self.model.token_to_mv.weight.dtype,
             )
             state = self.engine.normalize_multivector(state)
 
@@ -511,7 +511,7 @@ class CFSAlgorithm:
             x0.shape[1],
             mv_dim,
             device=self.device,
-            dtype=self.model.embed_to_clifford.weight.dtype,
+            dtype=self.model.token_to_mv.weight.dtype,
         )
         noise = noise * self.flow_noise_scale
         if self.normalize_noise:
