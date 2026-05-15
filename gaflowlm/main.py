@@ -2,7 +2,21 @@ import gc
 import glob
 import json
 import os
+import sys
 import time
+
+# Install the local flash_attn shim before any module that imports
+# flash_attn at module level (models/dit.py, models/flm_dit.py, etc.).
+# flash_attn ships Triton kernels that don't build for every GPU /
+# CUDA combo (Windows, Blackwell sm_120, older V100s, ...), so we fall
+# back to a pure-PyTorch implementation when the real package is missing.
+try:
+    import flash_attn  # noqa: F401
+except ImportError:
+    import flash_attn_mock
+    sys.modules["flash_attn"] = flash_attn_mock
+    sys.modules["flash_attn.layers"] = flash_attn_mock
+    sys.modules["flash_attn.layers.rotary"] = flash_attn_mock.layers.rotary
 
 import fsspec
 import hydra
