@@ -198,3 +198,48 @@ about optimization stability and diagnostics, not a broad architecture sweep.
 | Only helps on one architecture | Do not overgeneralize; present it as a CFS-specific optimization study |
 | Reviewers see it as "just per-group LR" | Emphasize structured grade separation and seed-variance evidence |
 | Implementation overhead on external codebases | Keep the first version as a thin optimizer wrapper with cosine base + offsets |
+
+## 9. Status (May 2026): controlled benchmarks to date
+
+Three benchmarks have been run on the synthetic CFS flow objective
+(k=4, h=64, 2 blocks, 2000 steps, batch 8, seq_len 32, random tokens).
+Each one tests a different thing — and the prior two were confounded
+by LR-magnitude asymmetries that pulled in opposite directions:
+
+| Script | Verdict | What it actually tested |
+|--------|---------|-------------------------|
+| `experiments/gws/gws_comparison.py` (7 seeds via `CFSAlgorithm`) | cosine wins 7/7, +32% | GWS had **less** effective per-step LR than baseline — `GWScheduler` applies grade factors ≤1 on top of the same `CosineAnnealingLR` baseline already uses |
+| `experiments/gws/cfs_ablation.py` (5 seeds, manual loop) | GWS wins 5/5, +25% | GWS had **more** effective LR than baseline — its optimizer LR was pinned to `eta_max` while the baseline cosine decayed normally |
+| `experiments/gws/cfs_ablation_fair.py` (5 seeds, controlled) | **GWS loses 4/5, -6%** | Only the per-grade *distribution* differs; total per-blade LR budget identical to baseline (`blade_scale` renormalized to sum to `n` every step) |
+
+The third script holds the LR controls and finds no positive effect
+from grade staggering on this benchmark. See commits `f153671`
+(engine fixes that made earlier numbers re-runnable) through
+`b2bc83a` (the fair-ablation result) for the full trail.
+
+### What this does and doesn't mean
+
+- **Does mean:** the existing in-repo evidence does not support grade
+  staggering as a useful default on synthetic CFS flow training. The
+  prior "30.8% over cosine" finding (commit `cef7a5e`) and upstream's
+  later "GWS stays EXPERIMENTAL" tag (commit `87becd6`) are both
+  consistent with this picture once the LR confounder is removed.
+- **Does not mean:** that grade staggering can't help anywhere. The
+  benchmark uses small models (~46k params), short schedules (2k
+  steps), synthetic random tokens, and a fixed phase-offset choice
+  (`[i * 0.15 for i in range(n_grades)]`). A genuine positive result
+  would need at least one of: (a) a real dataset (TinyGSM / GSM8K-test
+  / Sudoku) so the loss landscape isn't synthetic; (b) deeper models
+  where per-grade utilization varies more; (c) longer schedules so the
+  cosine-vs-grade decay interaction isn't dominant; (d) a phase-offset
+  sweep rather than a single guess.
+
+### Recommendation
+
+Keep GWS in the codebase as an experimental optimizer track, but the
+public README and any paper draft should describe its current status
+honestly: it is an idea that has not yet shown a confounder-free
+improvement on any benchmark in this repo. The most useful next
+experiment is `cfs_ablation_fair.py`-style ablation on a real dataset
+or a meaningfully deeper Clifford model, not another synthetic run at
+the same scale.
