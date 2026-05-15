@@ -183,6 +183,59 @@ Input: token IDs x₀ ∈ V^L
         x̂ = argmax_v logits_v
 ```
 
+#### As-implemented status (May 2026)
+
+The diagram above is the *design intent*. The current implementation in
+`gaflowlm/models/cfs_model.py` differs at the boundary layers:
+
+| Component                  | Designed                                  | As implemented in `cfs_model.py`          |
+|----------------------------|-------------------------------------------|-------------------------------------------|
+| Token → multivector embed  | `EmbedToCliff` (grade-routing projection) | `nn.Linear(hidden_size, mv_dim)`          |
+| Multivector → token decode | `CliffordToEmbedding` (grade gather)      | `nn.Linear(mv_dim, hidden_size)`          |
+| Velocity head              | bivector-only output                      | `nn.Linear(mv_dim, mv_dim)`               |
+| Multivector normalization  | `M / √⟨M M̃⟩₀` (spinor norm)             | `nn.LayerNorm(mv_dim)` (flat-axis)        |
+| CARE positional encoding   | rotor sandwich via Cayley tensor          | rotor sandwich via Cayley tensor          |
+| CFA attention              | bilinear via geometric product            | bilinear via geometric product            |
+
+The middle of the network is Clifford-aware (CARE, CFA, geometric
+product messages). The IO layers and the multivector norm treat the
+2^k axis as a flat vector and let the model learn whatever routing
+into blade slots works. The grade-aware modules `EmbedToClifford`,
+`CliffordToEmbed`, and `engine.normalize_multivector` exist in
+`gaflowlm/clifford/engine.py` and are exercised by tests, but no
+trained model wires them up.
+
+**Implications for the research story:**
+
+- *"CFS"* as currently trained is a partial Clifford commitment. Grades
+  are a coordinate convention at the boundary; only the middle layers
+  impose grade-mixing structure.
+- This explains why the `embed_to_clifford` blade-indexing bugfix
+  (commit `f153671`) produced bit-identical training results in
+  `gws_comparison.py` — the trained model never calls the engine
+  helper that was fixed.
+- It also weakens the a-priori motivation for GWS on the current
+  architecture: per-grade learning rate scaling assumes grades behave
+  differently during training, but a Linear can route gradient mass
+  to whichever blade slots minimize loss. The fair-ablation result
+  (see `docs/GWS_RESEARCH_DESIGN.md` §9 and
+  `experiments/gws/cfs_ablation_fair.py`) is consistent with that
+  picture.
+
+**Planned ablation (not yet run):** swap the four boundary layers for
+their grade-aware counterparts, keeping CARE and CFA unchanged, and
+re-run the S-FLM comparison. The variants to A/B:
+
+- *CFS-current*: nn.Linear IO + LayerNorm (today's behavior, will be
+  the baseline number from the first Sudoku run).
+- *CFS-grade-aware*: `EmbedToClifford` + `CliffordToEmbed` +
+  `engine.normalize_multivector` + a bivector-restricted velocity
+  head. Tests whether structural grade commitment, not just
+  coordinate-level naming, carries weight.
+
+Do not switch architectures before the first real-data baseline run.
+The variant is an ablation, not a fix.
+
 ### 5. Noise Schedule (`noise_schedules.py`)
 
 Direct adaptation from S-FLM with GA-specific modifications:
